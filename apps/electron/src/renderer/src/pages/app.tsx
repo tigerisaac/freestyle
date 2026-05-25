@@ -2,33 +2,64 @@ import { Orb } from "@renderer/components/ui/orb";
 import { getApiBase } from "@renderer/lib/api";
 import { Recorder } from "@renderer/lib/recorder";
 import { Streamer } from "@renderer/lib/streamer";
-import { Check, Mic } from "lucide-react";
+import { Mic } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const BARS = 14;
 const RISE = 0.55;
 const FALL = 0.22;
+const SVG_WIDTH = 140;
+const SVG_HEIGHT = 28;
 
-type PillState = "idle" | "recording" | "transcribing" | "pasted" | "error";
+/** Shared style for right-side text content in the pill */
+const pillTextStyle: React.CSSProperties = {
+  color: "#a1a1aa",
+  fontSize: 13,
+  flex: 1,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  paddingRight: 8,
+};
 
-// Audio feedback: short sine tones for recording start/stop
-function playTone(freq: number, durationMs: number, volume = 0.15): void {
+type PillState =
+  | "idle"
+  | "initializing"
+  | "recording"
+  | "transcribing"
+  | "error";
+
+// ---------------------------------------------------------------------------
+// Sound system — generates short sine-wave tones via Web Audio API.
+// Sounds can be muted globally via the `sound_enabled` setting.
+// ---------------------------------------------------------------------------
+
+let _soundEnabled = true; // cached; updated from settings on mount
+
+type TonePreset = "start" | "stop";
+const TONE_PRESETS: Record<TonePreset, { freq: number; ms: number }> = {
+  start: { freq: 880, ms: 100 },
+  stop: { freq: 660, ms: 100 },
+};
+
+async function playTone(preset: TonePreset, volume = 0.3): Promise<void> {
+  if (!_soundEnabled) return;
+  const { freq, ms } = TONE_PRESETS[preset];
   try {
     const ctx = new AudioContext();
+    // Resume context in case Chromium's autoplay policy suspended it
+    if (ctx.state === "suspended") await ctx.resume();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = "sine";
     osc.frequency.value = freq;
-    gain.gain.value = volume;
-    gain.gain.exponentialRampToValueAtTime(
-      0.001,
-      ctx.currentTime + durationMs / 1000,
-    );
+    gain.gain.setValueAtTime(volume, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + ms / 1000);
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start();
-    osc.stop(ctx.currentTime + durationMs / 1000);
-    setTimeout(() => ctx.close(), durationMs + 100);
+    osc.stop(ctx.currentTime + ms / 1000);
+    setTimeout(() => ctx.close(), ms + 200);
   } catch {
     // ignore audio errors
   }
@@ -51,7 +82,6 @@ function formatTimer(ms: number): string {
 
 export default function AppPage(): React.JSX.Element {
   const [state, setState] = useState<PillState>("idle");
-  const [bars, setBars] = useState<number[]>(() => new Array(BARS).fill(0));
   const [elapsed, setElapsed] = useState(0);
   const [message, setMessage] = useState("");
   const [partialText, setPartialText] = useState("");
@@ -61,12 +91,14 @@ export default function AppPage(): React.JSX.Element {
   const streamerRef = useRef<Streamer | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const barsRef = useRef<number[]>(new Array(BARS).fill(0));
+  const barsSvgRef = useRef<SVGSVGElement>(null);
   const volumeRef = useRef(0);
   const rafRef = useRef<number>(0);
   const startTimeRef = useRef(0);
   const timerRef = useRef<number>(0);
   const wantsMicRef = useRef(false);
   const appContextRef = useRef<string | null>(null);
+  const micWarmedUp = useRef(false); // true after first successful getUserMedia
 
   const getInputVolume = useCallback(() => volumeRef.current, []);
 
@@ -98,8 +130,19 @@ export default function AppPage(): React.JSX.Element {
         totalSum += val;
       }
       barsRef.current = smoothBars(barsRef.current, raw);
-      setBars([...barsRef.current]);
       volumeRef.current = Math.min(1, (totalSum / BARS) * 2.5);
+      // Direct DOM update — avoids 60fps React re-renders (rerender-use-ref-transient-values)
+      const svg = barsSvgRef.current;
+      if (svg) {
+        const lines = svg.querySelectorAll("line");
+        for (let i = 0; i < lines.length; i++) {
+          const val = barsRef.current[i] ?? 0;
+          const h = Math.max(2, val * SVG_HEIGHT * 1.25);
+          lines[i].setAttribute("y1", String((SVG_HEIGHT + h) / 2));
+          lines[i].setAttribute("y2", String((SVG_HEIGHT - h) / 2));
+          lines[i].style.opacity = String(0.5 + val * 0.5);
+        }
+      }
       rafRef.current = requestAnimationFrame(update);
     };
     rafRef.current = requestAnimationFrame(update);
@@ -118,25 +161,41 @@ export default function AppPage(): React.JSX.Element {
       }
       ctxRef.current = null;
     }
-    setBars(new Array(BARS).fill(0));
     barsRef.current = new Array(BARS).fill(0);
     volumeRef.current = 0;
     setElapsed(0);
+  }, []);
+
+  // Hide the pill immediately
+  const hidePill = useCallback(() => {
+    window.api.hidePill();
   }, []);
 
   // -- Start recording --
   const startRecording = useCallback(async () => {
     if (wantsMicRef.current) return; // Already recording
     wantsMicRef.current = true;
-    setState("recording");
     setMessage("");
     setPartialText("");
-    // Audio feedback: ascending tone on start
-    playTone(880, 100);
 
-    // Capture frontmost app NOW (before mic dialog or any focus change)
-    appContextRef.current =
-      (await window.api?.getFrontmostApp().catch(() => null)) ?? null;
+    // Capture frontmost app in parallel with mic acquisition (don't block on it)
+    window.api
+      ?.getFrontmostApp()
+      .then((app) => {
+        appContextRef.current = app;
+      })
+      .catch(() => {
+        appContextRef.current = null;
+      });
+
+    // Show initializing only on the very first press (mic not yet warmed up)
+    const isFirstPress = !micWarmedUp.current;
+    if (isFirstPress) {
+      setState("initializing");
+    } else {
+      setState("recording");
+      playTone("start");
+    }
 
     try {
       // Start the recorder (captures audio for REST transcription)
@@ -145,6 +204,13 @@ export default function AppPage(): React.JSX.Element {
       if (!wantsMicRef.current) {
         recorderRef.current.cancel();
         return;
+      }
+
+      // Mark mic as warmed up after first successful acquisition
+      if (isFirstPress) {
+        micWarmedUp.current = true;
+        playTone("start");
+        setState("recording");
       }
 
       // Start timer
@@ -175,18 +241,8 @@ export default function AppPage(): React.JSX.Element {
 
             if (text.trim()) {
               await window.api.pasteText(text);
-              setState("pasted");
-              setMessage(text.length > 40 ? `${text.slice(0, 40)}...` : text);
-              setTimeout(() => {
-                setState("idle");
-                setMessage("");
-                setPartialText("");
-              }, 1500);
-            } else {
-              setState("idle");
-              setMessage("");
-              setPartialText("");
             }
+            hidePill();
           },
           onError: (msg) => {
             // Clean up on streaming error
@@ -195,10 +251,7 @@ export default function AppPage(): React.JSX.Element {
             recorderRef.current.cancel();
             setState("error");
             setMessage(msg);
-            setTimeout(() => {
-              setState("idle");
-              setMessage("");
-            }, 2500);
+            setTimeout(() => hidePill(), 2000);
           },
         });
         streamerRef.current = streamer;
@@ -214,16 +267,16 @@ export default function AppPage(): React.JSX.Element {
       wantsMicRef.current = false;
       setState("error");
       setMessage(err instanceof Error ? err.message : "Mic access denied");
-      setTimeout(() => setState("idle"), 2500);
+      setTimeout(() => hidePill(), 2000);
     }
-  }, [startVisualization]);
+  }, [startVisualization, hidePill]);
 
   // -- Commit: stop recording and transcribe --
   const commitRecording = useCallback(async () => {
     wantsMicRef.current = false;
     stopVisualization();
     // Audio feedback: descending tone on stop
-    playTone(660, 100);
+    playTone("stop");
 
     // Skip recordings shorter than 1 second (likely accidental trigger)
     const recordingDuration = Date.now() - startTimeRef.current;
@@ -231,7 +284,7 @@ export default function AppPage(): React.JSX.Element {
       recorderRef.current.cancel();
       streamerRef.current?.cancel();
       streamerRef.current = null;
-      setState("idle");
+      window.api.hidePill();
       return;
     }
 
@@ -257,7 +310,7 @@ export default function AppPage(): React.JSX.Element {
       if (recorderRef.current.isRecording()) {
         wavBlob = await recorderRef.current.stop();
       } else {
-        setState("idle");
+        hidePill();
         return;
       }
 
@@ -282,28 +335,16 @@ export default function AppPage(): React.JSX.Element {
       const data = await res.json();
       const text = data.cleaned || data.raw || "";
 
-      if (!text.trim()) {
-        setState("idle");
-        return;
+      if (text.trim()) {
+        await window.api.pasteText(text);
       }
-
-      await window.api.pasteText(text);
-      setState("pasted");
-      setMessage(text.length > 40 ? `${text.slice(0, 40)}...` : text);
-      setTimeout(() => {
-        setState("idle");
-        setMessage("");
-        setPartialText("");
-      }, 1500);
+      hidePill();
     } catch (err) {
       setState("error");
       setMessage(err instanceof Error ? err.message : "Transcription failed");
-      setTimeout(() => {
-        setState("idle");
-        setMessage("");
-      }, 2500);
+      setTimeout(() => hidePill(), 2000);
     }
-  }, [useStreaming, stopVisualization]);
+  }, [useStreaming, stopVisualization, hidePill]);
 
   const cancelRecording = useCallback(() => {
     wantsMicRef.current = false;
@@ -311,33 +352,41 @@ export default function AppPage(): React.JSX.Element {
     streamerRef.current?.cancel();
     streamerRef.current = null;
     recorderRef.current.cancel();
-    setState("idle");
-    setMessage("");
-    setPartialText("");
+    window.api.hidePill();
   }, [stopVisualization]);
+
+  // Load sound preference from server settings
+  useEffect(() => {
+    window.api
+      ?.getServerPort()
+      .then((port) =>
+        fetch(`http://localhost:${port}/api/settings/sound_enabled`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (data?.value === "false") _soundEnabled = false;
+          }),
+      )
+      .catch(() => {});
+  }, []);
 
   // Track state in a ref so event handlers don't need state in their deps
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // Hide the pill whenever we return to idle (covers all exit paths)
-  const prevStateRef = useRef(state);
-  useEffect(() => {
-    if (state === "idle" && prevStateRef.current !== "idle") {
-      window.api.hidePill();
-    }
-    prevStateRef.current = state;
-  }, [state]);
-
   // Hold-to-record: hotkey down = start, hotkey up = commit
   useEffect(() => {
     const removeDown = window.api.onHotkeyDown(() => {
-      if (stateRef.current === "idle") {
+      const s = stateRef.current;
+      // Allow starting from idle or terminal states (transcribing/error)
+      if (s === "idle" || s === "transcribing" || s === "error") {
         startRecording();
       }
     });
     const removeUp = window.api.onHotkeyUp(() => {
-      if (stateRef.current === "recording") {
+      if (
+        stateRef.current === "recording" ||
+        stateRef.current === "initializing"
+      ) {
         commitRecording();
       }
     });
@@ -356,19 +405,17 @@ export default function AppPage(): React.JSX.Element {
   }, [cancelRecording]);
 
   // -- Render --
-  const svgWidth = 140;
-  const svgHeight = 28;
-  const gap = svgWidth / BARS;
+  const gap = SVG_WIDTH / BARS;
   const barWidth = Math.min(gap * 0.55, 5);
 
   // Animated glow uses CSS animation via a class
   const glowState =
-    state === "recording"
-      ? "glow-recording"
-      : state === "transcribing"
-        ? "glow-transcribing"
-        : state === "pasted"
-          ? "glow-pasted"
+    state === "initializing"
+      ? "glow-initializing"
+      : state === "recording"
+        ? "glow-recording"
+        : state === "transcribing"
+          ? "glow-transcribing"
           : state === "error"
             ? "glow-error"
             : "glow-idle";
@@ -380,6 +427,10 @@ export default function AppPage(): React.JSX.Element {
     >
       <style>
         {`
+          @keyframes glow-pulse-amber {
+            0%, 100% { box-shadow: 0 0 8px 2px rgba(251,191,36,0.12), 0 0 16px 4px rgba(251,191,36,0.05); }
+            50% { box-shadow: 0 0 12px 3px rgba(251,191,36,0.22), 0 0 20px 5px rgba(251,191,36,0.09); }
+          }
           @keyframes glow-pulse-green {
             0%, 100% { box-shadow: 0 0 8px 2px rgba(138,182,42,0.12), 0 0 16px 4px rgba(138,182,42,0.05); }
             50% { box-shadow: 0 0 12px 3px rgba(138,182,42,0.20), 0 0 20px 5px rgba(138,182,42,0.08); }
@@ -392,9 +443,9 @@ export default function AppPage(): React.JSX.Element {
             0%, 100% { box-shadow: 0 0 8px 2px rgba(221,110,78,0.12); }
             50% { box-shadow: 0 0 12px 3px rgba(221,110,78,0.20); }
           }
+          .glow-initializing { animation: glow-pulse-amber 1s ease-in-out infinite; }
           .glow-recording { animation: glow-pulse-green 2s ease-in-out infinite; }
           .glow-transcribing { animation: glow-pulse-blue 1.5s ease-in-out infinite; }
-          .glow-pasted { box-shadow: 0 0 10px 3px rgba(138,182,42,0.12); transition: box-shadow 300ms ease; }
           .glow-error { animation: glow-pulse-red 1.5s ease-in-out infinite; }
           .glow-idle { box-shadow: 0 0 6px 2px rgba(161,161,170,0.05); transition: box-shadow 300ms ease; }
         `}
@@ -419,7 +470,7 @@ export default function AppPage(): React.JSX.Element {
             } as React.CSSProperties
           }
         >
-          {/* Persistent orb — never unmounts, only props change */}
+          {/* Orb — conditionally rendered per state */}
           {state !== "idle" && (
             <div
               style={{
@@ -436,14 +487,18 @@ export default function AppPage(): React.JSX.Element {
                     ? ["#DD6E4E", "#B85C3A"]
                     : state === "transcribing"
                       ? ["#60A5FA", "#3B82F6"]
-                      : ["#8AB62A", "#6B8F12"]
+                      : state === "initializing"
+                        ? ["#FBBF24", "#F59E0B"]
+                        : ["#8AB62A", "#6B8F12"]
                 }
                 agentState={
-                  state === "recording"
-                    ? "listening"
-                    : state === "transcribing"
-                      ? "talking"
-                      : null
+                  state === "initializing"
+                    ? "talking"
+                    : state === "recording"
+                      ? "listening"
+                      : state === "transcribing"
+                        ? "talking"
+                        : null
                 }
                 getInputVolume={
                   state === "recording" ? getInputVolume : undefined
@@ -454,6 +509,12 @@ export default function AppPage(): React.JSX.Element {
           )}
 
           {/* Right-side content changes per state */}
+          {state === "initializing" && (
+            <span style={pillTextStyle}>
+              <span style={{ opacity: 0.7 }}>Listening...</span>
+            </span>
+          )}
+
           {state === "recording" && (
             <>
               {partialText ? (
@@ -473,27 +534,27 @@ export default function AppPage(): React.JSX.Element {
                 </span>
               ) : (
                 <svg
-                  width={svgWidth}
-                  height={svgHeight}
-                  viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+                  ref={barsSvgRef}
+                  width={SVG_WIDTH}
+                  height={SVG_HEIGHT}
+                  viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
                   style={{ display: "block", flex: 1 }}
                   role="img"
                   aria-label="Audio levels"
                 >
-                  {bars.map((val, i) => {
-                    const h = Math.max(2, val * svgHeight * 1.25);
+                  {Array.from({ length: BARS }, (_, i) => {
                     const x = gap * (i + 0.5);
                     return (
                       <line
                         key={i}
                         x1={x}
-                        y1={(svgHeight + h) / 2}
+                        y1={SVG_HEIGHT / 2 + 1}
                         x2={x}
-                        y2={(svgHeight - h) / 2}
+                        y2={SVG_HEIGHT / 2 - 1}
                         stroke="#a1a1aa"
                         strokeWidth={barWidth}
                         strokeLinecap="round"
-                        style={{ opacity: 0.5 + val * 0.5 }}
+                        style={{ opacity: 0.5 }}
                       />
                     );
                   })}
@@ -516,60 +577,13 @@ export default function AppPage(): React.JSX.Element {
           )}
 
           {state === "transcribing" && (
-            <span
-              style={{
-                color: "#a1a1aa",
-                fontSize: 13,
-                flex: 1,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                paddingRight: 8,
-              }}
-            >
+            <span style={pillTextStyle}>
               {partialText ? partialText.slice(-30) : "Transcribing..."}
             </span>
           )}
 
-          {state === "pasted" && (
-            <span
-              style={{
-                color: "#a1a1aa",
-                fontSize: 13,
-                flex: 1,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                paddingRight: 8,
-              }}
-            >
-              <Check
-                size={14}
-                style={{
-                  color: "#8AB62A",
-                  display: "inline",
-                  verticalAlign: "middle",
-                  marginRight: 4,
-                }}
-              />
-              {message || "Pasted"}
-            </span>
-          )}
-
           {state === "error" && (
-            <span
-              style={{
-                color: "#a1a1aa",
-                fontSize: 13,
-                flex: 1,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                paddingRight: 8,
-              }}
-            >
-              {message || "Error"}
-            </span>
+            <span style={pillTextStyle}>{message || "Error"}</span>
           )}
 
           {state === "idle" && (
