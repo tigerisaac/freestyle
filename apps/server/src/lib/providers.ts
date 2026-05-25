@@ -4,15 +4,18 @@ import { createElevenLabs } from "@ai-sdk/elevenlabs";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createGroq } from "@ai-sdk/groq";
 import { createOpenAI } from "@ai-sdk/openai";
-import type { LanguageModelV1 } from "ai";
+import type { LanguageModel } from "ai";
 import { getDb } from "./db.js";
+
+// Providers that don't require an API key from the api_keys table
+const LOCAL_PROVIDERS = new Set(["local-llm"]);
 
 // Provider factory creators keyed by provider ID
 const PROVIDER_FACTORIES: Record<
   string,
   (apiKey: string) => {
     transcription?: (model: string) => unknown;
-    chat?: (model: string) => LanguageModelV1;
+    chat?: (model: string) => LanguageModel;
   }
 > = {
   openai: (apiKey) => {
@@ -21,7 +24,10 @@ const PROVIDER_FACTORIES: Record<
   },
   groq: (apiKey) => {
     const p = createGroq({ apiKey });
-    return { transcription: (m) => p.transcription(m), chat: (m) => p.chat(m) };
+    return {
+      transcription: (m) => p.transcription(m),
+      chat: (m) => p.languageModel(m),
+    };
   },
   anthropic: (apiKey) => {
     const p = createAnthropic({ apiKey });
@@ -38,6 +44,26 @@ const PROVIDER_FACTORIES: Record<
   elevenlabs: (apiKey) => {
     const p = createElevenLabs({ apiKey });
     return { transcription: (m) => p.transcription(m) };
+  },
+  "local-llm": () => {
+    const db = getDb();
+    const urlRow = db
+      .prepare("SELECT value FROM settings WHERE key = 'local_llm_url'")
+      .get() as { value: string } | undefined;
+    if (!urlRow?.value) {
+      throw new Error(
+        "Local LLM endpoint URL not configured. Go to Settings > Models to set it up.",
+      );
+    }
+    const keyRow = db
+      .prepare("SELECT value FROM settings WHERE key = 'local_llm_api_key'")
+      .get() as { value: string } | undefined;
+
+    const baseURL = urlRow.value.replace(/\/v1\/?$/, "");
+    const apiKey = keyRow?.value || "local";
+
+    const p = createOpenAI({ apiKey, baseURL: `${baseURL}/v1` });
+    return { chat: (m: string) => p.chat(m) };
   },
 };
 
@@ -100,16 +126,19 @@ export function createTranscriptionModel(providerId: string, modelId: string) {
     throw new Error(`Provider ${providerId} does not support transcription`);
   }
 
-  // The model_id from models.dev is like "openai/whisper-1" -- extract the part after "/"
-  const shortId = modelId.includes("/") ? modelId.split("/").pop()! : modelId;
+  // The model_id is like "openai/whisper-1" -- strip the provider prefix
+  const shortId = modelId.includes("/")
+    ? modelId.slice(modelId.indexOf("/") + 1)
+    : modelId;
   return provider.transcription(shortId);
 }
 
 export function createChatModel(
   providerId: string,
   modelId: string,
-): LanguageModelV1 {
-  const apiKey = getApiKey(providerId);
+): LanguageModel {
+  const isLocal = LOCAL_PROVIDERS.has(providerId);
+  const apiKey = isLocal ? "local" : getApiKey(providerId);
   if (!apiKey)
     throw new Error(`No API key configured for provider: ${providerId}`);
 
@@ -121,6 +150,8 @@ export function createChatModel(
     throw new Error(`Provider ${providerId} does not support chat`);
   }
 
-  const shortId = modelId.includes("/") ? modelId.split("/").pop()! : modelId;
+  const shortId = modelId.includes("/")
+    ? modelId.slice(modelId.indexOf("/") + 1)
+    : modelId;
   return provider.chat(shortId);
 }

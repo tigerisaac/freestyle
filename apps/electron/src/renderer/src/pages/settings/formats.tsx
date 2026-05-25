@@ -1,6 +1,11 @@
-import { getApiBase } from "@renderer/lib/api";
+import type { CreateFormatInput } from "@freestyle/validations";
+import { createFormatSchema } from "@freestyle/validations";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { getClient } from "@renderer/lib/api";
+import { cn } from "@renderer/lib/utils";
 import { FileText, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
 
 interface FormatRule {
   id: number;
@@ -19,14 +24,17 @@ export default function FormatsPage(): React.JSX.Element {
   // Form
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [formLabel, setFormLabel] = useState("");
-  const [formPattern, setFormPattern] = useState("");
-  const [formInstructions, setFormInstructions] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const form = useForm<CreateFormatInput>({
+    resolver: zodResolver(createFormatSchema),
+    defaultValues: { label: "", app_pattern: "", instructions: "" },
+  });
 
   const loadData = useCallback(async () => {
     try {
-      const res = await fetch(`${getApiBase()}/api/formats?limit=200`);
+      const res = await getClient().api.formats.$get({
+        query: { limit: "200" },
+      });
       if (res.ok) {
         const data = await res.json();
         setRules(data.items ?? data);
@@ -45,73 +53,64 @@ export default function FormatsPage(): React.JSX.Element {
   const resetForm = useCallback(() => {
     setShowForm(false);
     setEditingId(null);
-    setFormLabel("");
-    setFormPattern("");
-    setFormInstructions("");
     setFormError(null);
-  }, []);
+    form.reset({ label: "", app_pattern: "", instructions: "" });
+  }, [form]);
 
-  const startEdit = useCallback((rule: FormatRule) => {
-    setEditingId(rule.id);
-    setFormLabel(rule.label);
-    setFormPattern(rule.app_pattern);
-    setFormInstructions(rule.instructions);
-    setFormError(null);
-    setShowForm(true);
-  }, []);
-
-  const saveRule = useCallback(async () => {
-    if (!formLabel.trim() || !formPattern.trim() || !formInstructions.trim()) {
-      setFormError("All fields are required.");
-      return;
-    }
-    setFormError(null);
-
-    try {
-      const url = editingId
-        ? `${getApiBase()}/api/formats/${editingId}`
-        : `${getApiBase()}/api/formats`;
-
-      const res = await fetch(url, {
-        method: editingId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          label: formLabel.trim(),
-          app_pattern: formPattern.trim(),
-          instructions: formInstructions.trim(),
-        }),
+  const startEdit = useCallback(
+    (rule: FormatRule) => {
+      setEditingId(rule.id);
+      form.reset({
+        label: rule.label,
+        app_pattern: rule.app_pattern,
+        instructions: rule.instructions,
       });
+      setFormError(null);
+      setShowForm(true);
+    },
+    [form],
+  );
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: "Failed" }));
-        setFormError(data.error || `HTTP ${res.status}`);
-        return;
+  const saveRule = useCallback(
+    async (data: CreateFormatInput) => {
+      setFormError(null);
+
+      try {
+        const client = getClient();
+        const res = editingId
+          ? await client.api.formats[":id"].$put({
+              param: { id: String(editingId) },
+              json: data,
+            })
+          : await client.api.formats.$post({ json: data });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setFormError(text || `HTTP ${res.status}`);
+          return;
+        }
+
+        resetForm();
+        loadData();
+      } catch {
+        setFormError("Failed to save.");
       }
-
-      resetForm();
-      loadData();
-    } catch {
-      setFormError("Failed to save.");
-    }
-  }, [
-    formLabel,
-    formPattern,
-    formInstructions,
-    editingId,
-    resetForm,
-    loadData,
-  ]);
+    },
+    [editingId, resetForm, loadData],
+  );
 
   const deleteRule = useCallback(
     async (id: number) => {
-      await fetch(`${getApiBase()}/api/formats/${id}`, { method: "DELETE" });
+      await getClient().api.formats[":id"].$delete({
+        param: { id: String(id) },
+      });
       loadData();
     },
     [loadData],
   );
 
   const resetDefaults = useCallback(async () => {
-    await fetch(`${getApiBase()}/api/formats/reset`, { method: "POST" });
+    await getClient().api.formats.reset.$post();
     loadData();
   }, [loadData]);
 
@@ -142,7 +141,9 @@ export default function FormatsPage(): React.JSX.Element {
         <button
           type="button"
           onClick={() => {
-            resetForm();
+            form.reset({ label: "", app_pattern: "", instructions: "" });
+            setEditingId(null);
+            setFormError(null);
             setShowForm(true);
           }}
           className="bg-primary text-primary-foreground hover:bg-primary/90 flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium"
@@ -177,7 +178,7 @@ export default function FormatsPage(): React.JSX.Element {
               <X size={16} />
             </button>
           </div>
-          <div className="space-y-3">
+          <form className="space-y-3" onSubmit={form.handleSubmit(saveRule)}>
             <div>
               <label
                 htmlFor="fmt-label"
@@ -188,11 +189,18 @@ export default function FormatsPage(): React.JSX.Element {
               <input
                 id="fmt-label"
                 type="text"
-                value={formLabel}
-                onChange={(e) => setFormLabel(e.target.value)}
+                {...form.register("label")}
                 placeholder='e.g. "Email" or "Slack"'
-                className="border-border bg-background w-full rounded-lg border px-3 py-2 text-sm"
+                className={cn(
+                  "border-border bg-background w-full rounded-lg border px-3 py-2 text-sm",
+                  form.formState.errors.label && "border-destructive",
+                )}
               />
+              {form.formState.errors.label && (
+                <p className="text-destructive mt-1 text-xs">
+                  {form.formState.errors.label.message}
+                </p>
+              )}
             </div>
             <div>
               <label
@@ -204,11 +212,18 @@ export default function FormatsPage(): React.JSX.Element {
               <input
                 id="fmt-pattern"
                 type="text"
-                value={formPattern}
-                onChange={(e) => setFormPattern(e.target.value)}
+                {...form.register("app_pattern")}
                 placeholder="e.g. mail.google.com|outlook|Spark"
-                className="border-border bg-background w-full rounded-lg border px-3 py-2 font-mono text-sm"
+                className={cn(
+                  "border-border bg-background w-full rounded-lg border px-3 py-2 font-mono text-sm",
+                  form.formState.errors.app_pattern && "border-destructive",
+                )}
               />
+              {form.formState.errors.app_pattern && (
+                <p className="text-destructive mt-1 text-xs">
+                  {form.formState.errors.app_pattern.message}
+                </p>
+              )}
               <p className="text-muted-foreground mt-1 text-[10px]">
                 Matched against the app name, URL, and page title.
                 Case-insensitive.
@@ -223,12 +238,19 @@ export default function FormatsPage(): React.JSX.Element {
               </label>
               <textarea
                 id="fmt-instructions"
-                value={formInstructions}
-                onChange={(e) => setFormInstructions(e.target.value)}
+                {...form.register("instructions")}
                 placeholder="Tell the LLM how to format the text..."
                 rows={3}
-                className="border-border bg-background w-full resize-none rounded-lg border px-3 py-2 text-sm"
+                className={cn(
+                  "border-border bg-background w-full resize-none rounded-lg border px-3 py-2 text-sm",
+                  form.formState.errors.instructions && "border-destructive",
+                )}
               />
+              {form.formState.errors.instructions && (
+                <p className="text-destructive mt-1 text-xs">
+                  {form.formState.errors.instructions.message}
+                </p>
+              )}
             </div>
             {formError && (
               <p className="text-destructive text-xs">{formError}</p>
@@ -242,14 +264,13 @@ export default function FormatsPage(): React.JSX.Element {
                 Cancel
               </button>
               <button
-                type="button"
-                onClick={saveRule}
+                type="submit"
                 className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg px-3 py-1.5 text-sm font-medium"
               >
                 {editingId ? "Update" : "Add"}
               </button>
             </div>
-          </div>
+          </form>
         </div>
       )}
 

@@ -1,6 +1,8 @@
+import { apiKeySchema } from "@freestyle/validations";
+import { zodResolver } from "@hookform/resolvers/zod";
 import markDark from "@renderer/assets/mark-dark.svg";
 import markLight from "@renderer/assets/mark-light.svg";
-import { getApiBase } from "@renderer/lib/api";
+import { getClient } from "@renderer/lib/api";
 import { cn } from "@renderer/lib/utils";
 import {
   AlertTriangle,
@@ -13,6 +15,7 @@ import {
   Shield,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router";
 
 type Step = "welcome" | "permissions" | "voice-model";
@@ -47,7 +50,10 @@ export default function OnboardingPage(): React.JSX.Element {
   const [selectedModel, setSelectedModel] = useState<AvailableModel | null>(
     null,
   );
-  const [apiKey, setApiKey] = useState("");
+  const apiKeyForm = useForm<{ provider: string; key: string }>({
+    resolver: zodResolver(apiKeySchema),
+    defaultValues: { provider: "", key: "" },
+  });
   const [showKey, setShowKey] = useState(false);
   const [needsKey, setNeedsKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -67,11 +73,14 @@ export default function OnboardingPage(): React.JSX.Element {
 
   // Load models
   useEffect(() => {
-    fetch(`${getApiBase()}/api/models/available`)
+    const client = getClient();
+    client.api.models.available
+      .$get()
       .then((r) => (r.ok ? r.json() : []))
       .then((models: AvailableModel[]) => setAvailable(models))
       .catch(() => {});
-    fetch(`${getApiBase()}/api/keys`)
+    client.api.keys
+      .$get()
       .then((r) => (r.ok ? r.json() : []))
       .then((keys: { provider: string }[]) =>
         setApiKeys(new Set(keys.map((k) => k.provider))),
@@ -102,12 +111,12 @@ export default function OnboardingPage(): React.JSX.Element {
       setSelectedModel(model);
       if (!apiKeys.has(model.provider_id)) {
         setNeedsKey(true);
-        setApiKey("");
+        apiKeyForm.reset({ provider: model.provider_id, key: "" });
       } else {
         setNeedsKey(false);
       }
     },
-    [apiKeys],
+    [apiKeys, apiKeyForm],
   );
 
   const finishSetup = useCallback(async () => {
@@ -115,29 +124,28 @@ export default function OnboardingPage(): React.JSX.Element {
     setSaving(true);
 
     try {
-      // Save API key if needed
-      if (needsKey && apiKey.trim()) {
-        await fetch(`${getApiBase()}/api/keys`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            provider: selectedModel.provider_id,
-            key: apiKey.trim(),
-          }),
-        });
+      const client = getClient();
+      if (needsKey) {
+        const keyData = apiKeyForm.getValues();
+        if (keyData.key.trim()) {
+          await client.api.keys.$post({
+            json: {
+              provider: keyData.provider,
+              key: keyData.key.trim(),
+            },
+          });
+        }
       }
 
       // Save voice model as default
-      await fetch(`${getApiBase()}/api/models/configured`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      await client.api.models.configured.$post({
+        json: {
           provider: selectedModel.provider_id,
           model_id: selectedModel.model_id,
           model_name: selectedModel.model_name,
           type: "voice",
           is_default: true,
-        }),
+        },
       });
 
       // Mark onboarding complete
@@ -148,7 +156,7 @@ export default function OnboardingPage(): React.JSX.Element {
     } catch {
       setSaving(false);
     }
-  }, [selectedModel, needsKey, apiKey, navigate]);
+  }, [selectedModel, needsKey, apiKeyForm, navigate]);
 
   const voiceModels = available.filter(
     (m) => m.type === "voice" && VOICE_PROVIDERS.includes(m.provider_id),
@@ -352,12 +360,18 @@ export default function OnboardingPage(): React.JSX.Element {
                   <div className="relative">
                     <input
                       type={showKey ? "text" : "password"}
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
+                      {...apiKeyForm.register("key")}
                       placeholder="sk-..."
-                      className="border-border bg-card w-full rounded-lg border px-3 py-2.5 pr-10 font-mono text-sm"
+                      className={cn(
+                        "border-border bg-card w-full rounded-lg border px-3 py-2.5 pr-10 font-mono text-sm",
+                        apiKeyForm.formState.errors.key && "border-destructive",
+                      )}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && apiKey.trim()) finishSetup();
+                        if (
+                          e.key === "Enter" &&
+                          apiKeyForm.getValues("key").trim()
+                        )
+                          finishSetup();
                       }}
                     />
                     <button
@@ -368,6 +382,11 @@ export default function OnboardingPage(): React.JSX.Element {
                       {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
+                  {apiKeyForm.formState.errors.key && (
+                    <p className="text-destructive text-xs">
+                      {apiKeyForm.formState.errors.key.message}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -375,7 +394,9 @@ export default function OnboardingPage(): React.JSX.Element {
                 type="button"
                 onClick={finishSetup}
                 disabled={
-                  !selectedModel || (needsKey && !apiKey.trim()) || saving
+                  !selectedModel ||
+                  (needsKey && !apiKeyForm.watch("key").trim()) ||
+                  saving
                 }
                 className="bg-primary text-primary-foreground hover:bg-primary/90 w-full rounded-lg py-3 text-sm font-medium disabled:opacity-50"
               >
