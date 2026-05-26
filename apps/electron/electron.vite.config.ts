@@ -7,7 +7,7 @@ export default defineConfig({
   main: {
     build: {
       externalizeDeps: {
-        exclude: ["@freestyle/server"],
+        exclude: ["@freestyle/server", "@sentry/electron"],
       },
     },
   },
