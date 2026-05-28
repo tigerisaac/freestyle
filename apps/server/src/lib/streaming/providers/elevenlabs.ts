@@ -1,6 +1,10 @@
 import { Buffer } from "node:buffer";
 import { createElevenLabs } from "@ai-sdk/elevenlabs";
 import WebSocket from "ws";
+import {
+  appendElevenLabsBiasToParams,
+  transcribeElevenLabsWithBias,
+} from "../transcribe-bias.js";
 import type {
   StreamingSessionOptions,
   StreamSession,
@@ -78,6 +82,9 @@ export class ElevenLabsTranscriptionProvider implements TranscriptionProvider {
   readonly providerId = "elevenlabs";
 
   async transcribe(opts: TranscribeOptions): Promise<TranscribeResult> {
+    if (opts.bias?.kind === "elevenlabs-keyterms") {
+      return transcribeElevenLabsWithBias(opts, opts.bias);
+    }
     const model = stripProviderPrefix(opts.model).endsWith("_realtime")
       ? opts.model.replace(/_realtime$/, "")
       : opts.model;
@@ -89,7 +96,7 @@ export class ElevenLabsTranscriptionProvider implements TranscriptionProvider {
   }
 
   openStreamingSession(opts: StreamingSessionOptions): StreamSession {
-    const { apiKey, model, callbacks } = opts;
+    const { apiKey, model, bias, callbacks } = opts;
 
     // accumulatedText holds all committed segments so far.
     // partialText holds the in-progress text for the current (uncommitted) segment.
@@ -126,6 +133,7 @@ export class ElevenLabsTranscriptionProvider implements TranscriptionProvider {
           audio_format: "pcm_16000",
           commit_strategy: "manual",
         });
+        appendElevenLabsBiasToParams(params, bias);
 
         ws = new WebSocket(`${ELEVENLABS_STT_URL}?${params}`);
 

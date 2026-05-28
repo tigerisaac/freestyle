@@ -12,6 +12,7 @@ import postProcessRoute from "./routes/post-process-route.js";
 import settings from "./routes/settings.js";
 import stream from "./routes/stream.js";
 import transcribe from "./routes/transcribe.js";
+import vocabulary from "./routes/vocabulary.js";
 
 initSentry();
 
@@ -39,6 +40,7 @@ const app = new Hono()
   .route("/api/transcribe", transcribe)
   .route("/api/history", history)
   .route("/api/dictionary", dictionary)
+  .route("/api/vocabulary", vocabulary)
   .route("/api/formats", formats)
   .route("/api/post-process", postProcessRoute)
   .route("/api/feedback", feedback)

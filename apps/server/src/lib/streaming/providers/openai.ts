@@ -17,7 +17,7 @@ export class OpenAITranscriptionProvider implements TranscriptionProvider {
   readonly providerId = "openai";
 
   async transcribe(opts: TranscribeOptions): Promise<TranscribeResult> {
-    return transcribeWithAiSdk(opts, createOpenAI);
+    return transcribeWithAiSdk(opts, createOpenAI, this.providerId);
   }
 
   supportsStreaming(modelId: string): boolean {
@@ -25,7 +25,7 @@ export class OpenAITranscriptionProvider implements TranscriptionProvider {
   }
 
   openStreamingSession(opts: StreamingSessionOptions): StreamSession {
-    const { apiKey, model, prompt, callbacks } = opts;
+    const { apiKey, model, bias, callbacks } = opts;
     const short = stripProviderPrefix(model);
     let partialText = "";
     let configured = false;
@@ -39,7 +39,7 @@ export class OpenAITranscriptionProvider implements TranscriptionProvider {
 
     ws.on("open", () => {
       const transcription: Record<string, unknown> = { model: short };
-      if (prompt) transcription.prompt = prompt;
+      if (bias?.kind === "prompt") transcription.prompt = bias.text;
 
       ws.send(
         JSON.stringify({

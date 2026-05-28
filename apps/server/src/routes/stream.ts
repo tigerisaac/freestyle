@@ -11,6 +11,7 @@ import {
   type StreamSession,
   supportsStreaming,
 } from "../lib/streaming-stt.js";
+import { resolveAsrVocabularyBias } from "../lib/vocabulary-bias.js";
 
 const stream = new Hono().get(
   "/",
@@ -69,16 +70,11 @@ const stream = new Hono().get(
         return;
       }
 
-      let prompt: string | undefined;
-      try {
-        const db = getDb();
-        const row = db
-          .prepare(
-            "SELECT value FROM settings WHERE key = 'transcription_prompt'",
-          )
-          .get() as { value: string } | undefined;
-        if (row?.value) prompt = row.value;
-      } catch {}
+      const bias = resolveAsrVocabularyBias(
+        defaults.voice.provider,
+        defaults.voice.model_id,
+        true,
+      );
 
       metrics.count("streaming.session_opened", 1, {
         attributes: { provider: defaults.voice.provider },
@@ -88,7 +84,7 @@ const stream = new Hono().get(
         providerId: defaults.voice.provider,
         apiKey,
         model: defaults.voice.model_id,
-        prompt,
+        bias,
         callbacks: {
           onReady: (model) => {
             ws.send(JSON.stringify({ type: "session.ready", model }));

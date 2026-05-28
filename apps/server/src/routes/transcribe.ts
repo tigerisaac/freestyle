@@ -5,6 +5,7 @@ import { getDefaultModels } from "../lib/providers.js";
 import { captureException, metrics } from "../lib/sentry.js";
 import { getProvider } from "../lib/streaming/registry.js";
 import { getApiKeyForProvider } from "../lib/streaming-stt.js";
+import { resolveAsrVocabularyBias } from "../lib/vocabulary-bias.js";
 
 const transcribeRoute = new Hono().post("/", async (c) => {
   const start = Date.now();
@@ -77,11 +78,17 @@ const transcribeRoute = new Hono().post("/", async (c) => {
   }
 
   try {
+    const bias = resolveAsrVocabularyBias(
+      defaults.voice.provider,
+      defaults.voice.model_id,
+    );
+
     const result = await provider.transcribe({
       audio: audioData,
       model: defaults.voice.model_id,
       apiKey,
       ...(language ? { language } : {}),
+      bias,
     });
     rawText = result.text;
     if (process.env.NODE_ENV !== "production") {

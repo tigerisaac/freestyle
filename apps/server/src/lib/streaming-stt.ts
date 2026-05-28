@@ -1,6 +1,7 @@
 import { getDb } from "./db.js";
 import { getProvider, supportsStreaming } from "./streaming/registry.js";
 import type { StreamCallbacks, StreamSession } from "./streaming/types.js";
+import type { AsrVocabularyBias } from "./vocabulary-bias.js";
 
 export { supportsStreaming } from "./streaming/registry.js";
 export type { StreamCallbacks, StreamSession } from "./streaming/types.js";
@@ -9,10 +10,10 @@ export function openStreamingSession(opts: {
   providerId: string;
   apiKey: string;
   model: string;
-  prompt?: string;
+  bias?: AsrVocabularyBias | null;
   callbacks: StreamCallbacks;
 }): StreamSession {
-  const { providerId, apiKey, model, prompt, callbacks } = opts;
+  const { providerId, apiKey, model, bias, callbacks } = opts;
 
   const provider = getProvider(providerId);
   if (!provider) {
@@ -27,7 +28,7 @@ export function openStreamingSession(opts: {
     );
   }
 
-  return provider.openStreamingSession({ apiKey, model, prompt, callbacks });
+  return provider.openStreamingSession({ apiKey, model, bias, callbacks });
 }
 
 export function getApiKeyForProvider(providerId: string): string | null {

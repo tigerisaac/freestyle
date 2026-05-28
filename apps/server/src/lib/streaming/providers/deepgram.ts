@@ -1,5 +1,9 @@
 import { createDeepgram } from "@ai-sdk/deepgram";
 import WebSocket from "ws";
+import {
+  appendDeepgramBiasToParams,
+  transcribeDeepgramWithBias,
+} from "../transcribe-bias.js";
 import type {
   StreamingSessionOptions,
   StreamSession,
@@ -16,7 +20,14 @@ export class DeepgramTranscriptionProvider implements TranscriptionProvider {
   readonly providerId = "deepgram";
 
   async transcribe(opts: TranscribeOptions): Promise<TranscribeResult> {
-    return transcribeWithAiSdk(opts, createDeepgram);
+    const bias = opts.bias;
+    if (
+      bias?.kind === "deepgram-keyterms" ||
+      bias?.kind === "deepgram-keywords"
+    ) {
+      return transcribeDeepgramWithBias(opts, bias);
+    }
+    return transcribeWithAiSdk(opts, createDeepgram, this.providerId);
   }
 
   supportsStreaming(_modelId: string): boolean {
@@ -24,7 +35,7 @@ export class DeepgramTranscriptionProvider implements TranscriptionProvider {
   }
 
   openStreamingSession(opts: StreamingSessionOptions): StreamSession {
-    const { apiKey, model, callbacks } = opts;
+    const { apiKey, model, bias, callbacks } = opts;
 
     // accumulatedText holds all finalized utterances so far.
     // partialText holds the in-progress text for the current utterance.
@@ -44,6 +55,7 @@ export class DeepgramTranscriptionProvider implements TranscriptionProvider {
       endpointing: "false",
       vad_events: "false",
     });
+    appendDeepgramBiasToParams(params, bias);
 
     const ws = new WebSocket(`${DEEPGRAM_LISTEN_URL}?${params}`, {
       headers: { Authorization: `Token ${apiKey}` },

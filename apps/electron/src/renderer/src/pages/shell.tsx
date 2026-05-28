@@ -8,6 +8,7 @@ import {
   Clock,
   Cpu,
   FileText,
+  Languages,
   MessageSquare,
   Sliders,
 } from "lucide-react";
@@ -31,18 +32,24 @@ const navItems: NavItem[] = [
     shortcut: "3",
   },
   {
+    to: "/settings/vocabulary",
+    label: "Vocabulary",
+    icon: Languages,
+    shortcut: "4",
+  },
+  {
     to: "/settings/formats",
     label: "Formats",
     icon: FileText,
-    shortcut: "4",
+    shortcut: "5",
   },
-  { to: "/settings/models", label: "Models", icon: Cpu, shortcut: "5" },
-  { to: "/settings", label: "Settings", icon: Sliders, shortcut: "6" },
+  { to: "/settings/models", label: "Models", icon: Cpu, shortcut: "6" },
+  { to: "/settings", label: "Settings", icon: Sliders, shortcut: "7" },
   {
     to: "/settings/feedback",
     label: "Feedback",
     icon: MessageSquare,
-    shortcut: "7",
+    shortcut: "8",
   },
 ];
 
@@ -50,7 +57,7 @@ export default function AppShell(): React.JSX.Element {
   const navigate = useNavigate();
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Cmd/Ctrl+1..8 jumps between sidebar items
+  // Cmd/Ctrl+1..9 jumps between sidebar items
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;

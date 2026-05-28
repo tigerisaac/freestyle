@@ -18,6 +18,7 @@ import FormatsPage from "@renderer/pages/settings/formats";
 import GeneralSettingsPage from "@renderer/pages/settings/general";
 import HistoryPage from "@renderer/pages/settings/history";
 import ModelsPage from "@renderer/pages/settings/models";
+import VocabularyPage from "@renderer/pages/settings/vocabulary";
 import AppShell from "@renderer/pages/shell";
 import TodayPage from "@renderer/pages/today";
 import { ThemeProvider } from "next-themes";
@@ -60,6 +61,10 @@ initApiBase().then(() => {
                   <Route
                     path="/settings/dictionary"
                     element={<DictionaryPage />}
+                  />
+                  <Route
+                    path="/settings/vocabulary"
+                    element={<VocabularyPage />}
                   />
                   <Route path="/settings/formats" element={<FormatsPage />} />
                   <Route path="/settings/history" element={<HistoryPage />} />
