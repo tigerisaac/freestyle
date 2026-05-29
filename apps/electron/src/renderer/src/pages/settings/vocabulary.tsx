@@ -201,7 +201,7 @@ export default function VocabularyPage(): React.JSX.Element {
     >
       <div className="h-9 shrink-0" />
       <div
-        className="flex-1 overflow-auto px-12 pb-12"
+        className="responsive-page-scroll flex-1 overflow-auto"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <PageHeader
@@ -218,8 +218,8 @@ export default function VocabularyPage(): React.JSX.Element {
           />
         ) : (
           <>
-            <div className="mb-5 flex items-center gap-2.5">
-              <div className="border-border bg-card flex flex-1 items-center gap-2 rounded-lg border px-3 py-2">
+            <div className="mb-5 flex flex-col items-start gap-2.5 min-[1080px]:flex-row min-[1080px]:items-center">
+              <div className="border-border bg-card flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-lg border px-3 py-2">
                 <Search className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
                 <input
                   ref={searchInputRef}
@@ -230,41 +230,43 @@ export default function VocabularyPage(): React.JSX.Element {
                     setPage(0);
                   }}
                   placeholder="Search vocabulary…"
-                  className="placeholder:text-muted-foreground/80 text-foreground flex-1 bg-transparent text-[13px] outline-none"
+                  className="placeholder:text-muted-foreground/80 text-foreground min-w-0 flex-1 bg-transparent text-[13px] outline-none"
                 />
-                <span className="mono text-muted-foreground text-[10px]">
+                <span className="mono text-muted-foreground shrink-0 text-[10px]">
                   ⌘ K
                 </span>
               </div>
-              <ToolbarButton onClick={exportJson} title="Export as JSON">
-                <Download size={13} />
-                Export
-              </ToolbarButton>
-              <ToolbarButton
-                onClick={() => importRef.current?.click()}
-                title="Import from JSON"
-              >
-                <Upload size={13} />
-                Import
-              </ToolbarButton>
-              <input
-                ref={importRef}
-                type="file"
-                accept=".json"
-                className="hidden"
-                onChange={handleImport}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  resetForm();
-                  setShowForm(true);
-                }}
-                className="bg-primary text-primary-foreground hover:bg-primary/90 flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-2 text-[12.5px] font-medium"
-              >
-                <Plus size={13} />
-                Add term
-              </button>
+              <div className="flex shrink-0 flex-wrap items-center gap-2.5">
+                <ToolbarButton onClick={exportJson} title="Export as JSON">
+                  <Download size={13} />
+                  Export
+                </ToolbarButton>
+                <ToolbarButton
+                  onClick={() => importRef.current?.click()}
+                  title="Import from JSON"
+                >
+                  <Upload size={13} />
+                  Import
+                </ToolbarButton>
+                <input
+                  ref={importRef}
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleImport}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetForm();
+                    setShowForm(true);
+                  }}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-3 py-2 text-[12.5px] font-medium"
+                >
+                  <Plus size={13} />
+                  Add term
+                </button>
+              </div>
             </div>
 
             {showForm && (
@@ -321,7 +323,7 @@ export default function VocabularyPage(): React.JSX.Element {
                 {formError && (
                   <p className="text-destructive mt-3 text-xs">{formError}</p>
                 )}
-                <div className="mt-4 flex justify-end gap-2">
+                <div className="mt-4 flex flex-wrap justify-end gap-2">
                   <button
                     type="button"
                     onClick={resetForm}
@@ -356,7 +358,7 @@ export default function VocabularyPage(): React.JSX.Element {
             )}
 
             {total > 0 && (
-              <div className="mt-3.5 flex items-center justify-between">
+              <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2">
                 <span className="mono text-muted-foreground text-[11px] tracking-[0.04em]">
                   {total} {total === 1 ? "term" : "terms"}
                 </span>
@@ -440,7 +442,7 @@ function ToolbarButton({
       type="button"
       onClick={onClick}
       title={title}
-      className="border-border text-secondary-foreground/80 hover:text-foreground flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-2 text-[12.5px] font-medium"
+      className="border-border text-secondary-foreground/80 hover:text-foreground flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-3 py-2 text-[12.5px] font-medium"
     >
       {children}
     </button>
@@ -481,21 +483,20 @@ function EntryRow({
   return (
     <div
       className={cn(
-        "group grid items-center gap-3.5 px-5 py-3.5",
+        "vocabulary-entry-row group grid items-center gap-3.5 px-5 py-3.5",
         !isLast && "border-border/60 border-b",
       )}
-      style={{ gridTemplateColumns: "minmax(140px, 220px) 1fr 70px" }}
     >
       <span
-        className="mono text-foreground border-border bg-background justify-self-start truncate rounded-md border px-2 py-[3px] text-[12.5px] font-medium"
+        className="mono text-foreground border-border bg-background min-w-0 justify-self-start truncate rounded-md border px-2 py-[3px] text-[12.5px] font-medium"
         title={entry.term}
       >
         {entry.term}
       </span>
-      <span className="text-secondary-foreground line-clamp-2 text-[13px] leading-[1.4]">
+      <span className="text-secondary-foreground min-w-0 line-clamp-2 text-[13px] leading-[1.4]">
         {entry.notes || "—"}
       </span>
-      <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 max-[900px]:row-span-2 max-[900px]:opacity-100">
         <button
           type="button"
           onClick={() => onEdit(entry)}
