@@ -22,6 +22,16 @@ const stream = new Hono().get(
     let voiceDefaults: { provider: string; model_id: string } | null = null;
     let appContext: string | null = null;
     let audioDurationMs = 0;
+    /** Audio received while the upstream socket is still connecting. */
+    let pendingAudioChunks: ArrayBuffer[] = [];
+
+    function flushPendingAudio(): void {
+      if (!upstream) return;
+      for (const chunk of pendingAudioChunks) {
+        upstream.sendAudio(chunk);
+      }
+      pendingAudioChunks = [];
+    }
 
     function connectUpstream(ws: {
       send: (data: string) => void;
@@ -89,6 +99,7 @@ const stream = new Hono().get(
         bias,
         callbacks: {
           onReady: (model) => {
+            flushPendingAudio();
             ws.send(JSON.stringify({ type: "session.ready", model }));
           },
           onPartial: (text) => {
@@ -213,7 +224,13 @@ const stream = new Hono().get(
                     (data as Buffer).byteOffset,
                     (data as Buffer).byteOffset + (data as Buffer).byteLength,
                   ) as ArrayBuffer);
-          upstream?.sendAudio(buf);
+          if (!upstream) {
+            if (pendingAudioChunks.length < 500) {
+              pendingAudioChunks.push(buf);
+            }
+            return;
+          }
+          upstream.sendAudio(buf);
           return;
         }
 
@@ -239,12 +256,16 @@ const stream = new Hono().get(
           case "start":
             sessionStartTime = Date.now();
             audioDurationMs = 0;
-            appContext = null;
-            if (!upstream) {
+            pendingAudioChunks = [];
+            if (upstream) {
               try {
-                connectUpstream(ws);
+                upstream.close();
               } catch {}
+              upstream = null;
             }
+            try {
+              connectUpstream(ws);
+            } catch {}
             break;
           case "commit":
             if (msg.audioDurationMs && msg.audioDurationMs > 0) {
@@ -260,6 +281,7 @@ const stream = new Hono().get(
 
       onClose() {
         closed = true;
+        pendingAudioChunks = [];
         try {
           upstream?.close();
         } catch {}
@@ -268,6 +290,7 @@ const stream = new Hono().get(
 
       onError() {
         closed = true;
+        pendingAudioChunks = [];
         try {
           upstream?.close();
         } catch {}
