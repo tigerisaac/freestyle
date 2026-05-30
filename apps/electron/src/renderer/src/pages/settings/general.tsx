@@ -99,6 +99,7 @@ export default function GeneralSettingsPage(): React.JSX.Element {
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<string>("");
   const [hotkey, setHotkey] = useState("Alt+Space");
+  const [hotkeyMode, setHotkeyMode] = useState<"hold" | "toggle">("hold");
   const [language, setLanguage] = useState("auto");
   const [pillPosition, setPillPosition] = useState("bottom-center");
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -106,6 +107,7 @@ export default function GeneralSettingsPage(): React.JSX.Element {
   const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [autoUpdate, setAutoUpdate] = useState(true);
 
   // Permissions
@@ -181,6 +183,17 @@ export default function GeneralSettingsPage(): React.JSX.Element {
     }, 30000);
   }, []);
 
+  const handleHotkeyModeChange = useCallback((mode: "hold" | "toggle") => {
+    setHotkeyMode(mode);
+    window.api?.setHotkeyMode(mode);
+    getClient()
+      .api.settings[":key"].$put({
+        param: { key: "hotkey_mode" },
+        json: { value: mode },
+      })
+      .catch(() => {});
+  }, []);
+
   const handleHotkeyRecorded = useCallback((accelerator: string) => {
     setHotkey(accelerator);
     getClient()
@@ -189,7 +202,6 @@ export default function GeneralSettingsPage(): React.JSX.Element {
         json: { value: accelerator },
       })
       .catch(() => {});
-    window.api.updateHotkey(accelerator);
   }, []);
 
   const {
@@ -240,6 +252,13 @@ export default function GeneralSettingsPage(): React.JSX.Element {
       })
       .catch(() => {});
     getClient()
+      .api.settings[":key"].$get({ param: { key: "hotkey_mode" } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.value === "toggle") setHotkeyMode("toggle");
+      })
+      .catch(() => {});
+    getClient()
       .api.settings[":key"].$get({ param: { key: "language" } })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
@@ -275,14 +294,29 @@ export default function GeneralSettingsPage(): React.JSX.Element {
     const removeAvail = window.api?.onUpdateAvailable((info) => {
       setUpdateAvailable(info.version);
     });
+    const removeDownloading = window.api?.onUpdateDownloading(() => {
+      setDownloading(true);
+      setUpdateError(null);
+    });
     const removeDownloaded = window.api?.onUpdateDownloaded(() => {
       setUpdateDownloaded(true);
       setDownloading(false);
     });
+    const removeError = window.api?.onUpdateError((info) => {
+      setDownloading(false);
+      setUpdateError(info.message);
+    });
     window.api
       ?.checkForUpdate()
-      .then((v) => {
-        if (v) setUpdateAvailable(v);
+      .then((result) => {
+        if (result) {
+          setUpdateAvailable(result.version);
+          if (result.downloadState === "downloading") {
+            setDownloading(true);
+          } else if (result.downloadState === "downloaded") {
+            setUpdateDownloaded(true);
+          }
+        }
       })
       .catch(() => {});
 
@@ -290,7 +324,9 @@ export default function GeneralSettingsPage(): React.JSX.Element {
 
     return () => {
       removeAvail?.();
+      removeDownloading?.();
       removeDownloaded?.();
+      removeError?.();
       if (micPollRef.current) clearInterval(micPollRef.current);
       if (accessibilityPollRef.current)
         clearInterval(accessibilityPollRef.current);
@@ -405,6 +441,7 @@ export default function GeneralSettingsPage(): React.JSX.Element {
                 type="button"
                 onClick={() => {
                   setDownloading(true);
+                  setUpdateError(null);
                   window.api?.downloadUpdate();
                 }}
                 disabled={downloading}
@@ -412,6 +449,11 @@ export default function GeneralSettingsPage(): React.JSX.Element {
               >
                 {downloading ? "Downloading..." : "Download"}
               </button>
+            )}
+            {updateError && (
+              <span className="text-destructive w-full text-xs">
+                {updateError}
+              </span>
             )}
           </div>
         )}
@@ -427,7 +469,14 @@ export default function GeneralSettingsPage(): React.JSX.Element {
         </Section>
 
         <Section label="Recording">
-          <Row label="Hotkey" desc="Hold to record, release to transcribe.">
+          <Row
+            label="Hotkey"
+            desc={
+              hotkeyMode === "toggle"
+                ? "Press the shortcut once to start, press again to stop."
+                : "Hold the shortcut to record, release to transcribe."
+            }
+          >
             {recorderState === "idle" ? (
               <button
                 type="button"
@@ -485,6 +534,42 @@ export default function GeneralSettingsPage(): React.JSX.Element {
                 </div>
               </div>
             )}
+          </Row>
+
+          <Row
+            label="Activation"
+            desc={
+              hotkeyMode === "toggle"
+                ? "Press the shortcut once to start, again to stop."
+                : "Push-to-talk while the shortcut is held."
+            }
+          >
+            <div className="border-border bg-card inline-flex w-fit shrink-0 rounded-lg border p-0.5 text-sm">
+              <button
+                type="button"
+                onClick={() => handleHotkeyModeChange("hold")}
+                className={cn(
+                  "rounded-md px-3 py-1.5 transition-colors",
+                  hotkeyMode === "hold"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Hold
+              </button>
+              <button
+                type="button"
+                onClick={() => handleHotkeyModeChange("toggle")}
+                className={cn(
+                  "rounded-md px-3 py-1.5 transition-colors",
+                  hotkeyMode === "toggle"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Toggle
+              </button>
+            </div>
           </Row>
 
           <Row label="Microphone" desc="Select your audio input device.">

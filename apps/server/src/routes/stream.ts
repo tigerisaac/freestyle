@@ -18,12 +18,15 @@ const stream = new Hono().get(
   upgradeWebSocket(() => {
     let upstream: StreamSession | null = null;
     let closed = false;
+    let streamingUnsupported = false;
     let sessionStartTime = Date.now();
     let voiceDefaults: { provider: string; model_id: string } | null = null;
     let appContext: string | null = null;
     let audioDurationMs = 0;
     /** Audio received while the upstream socket is still connecting. */
     let pendingAudioChunks: ArrayBuffer[] = [];
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 3;
 
     function flushPendingAudio(): void {
       if (!upstream) return;
@@ -99,6 +102,7 @@ const stream = new Hono().get(
         bias,
         callbacks: {
           onReady: (model) => {
+            reconnectAttempts = 0;
             flushPendingAudio();
             ws.send(JSON.stringify({ type: "session.ready", model }));
           },
@@ -182,12 +186,31 @@ const stream = new Hono().get(
               });
           },
           onError: (message) => {
+            streamingUnsupported = true;
+            ws.send(
+              JSON.stringify({
+                type: "config",
+                streaming: false,
+                model: stripProviderPrefix(defaults.voice!.model_id),
+              }),
+            );
             ws.send(JSON.stringify({ type: "error", message }));
             if (upstream === session) upstream = null;
           },
           onClose: () => {
             // Ignore close from a superseded socket (replaced on a later "start").
-            if (upstream === session) upstream = null;
+            if (upstream !== session) return;
+            upstream = null;
+            if (
+              !closed &&
+              !streamingUnsupported &&
+              reconnectAttempts < MAX_RECONNECT_ATTEMPTS
+            ) {
+              reconnectAttempts++;
+              try {
+                connectUpstream(ws);
+              } catch {}
+            }
           },
         },
       });
@@ -258,6 +281,7 @@ const stream = new Hono().get(
             audioDurationMs = 0;
             appContext = null;
             pendingAudioChunks = [];
+            reconnectAttempts = 0;
             if (upstream) {
               upstream.reset();
               flushPendingAudio();
@@ -272,9 +296,11 @@ const stream = new Hono().get(
               }
               break;
             }
-            try {
-              connectUpstream(ws);
-            } catch {}
+            if (!streamingUnsupported) {
+              try {
+                connectUpstream(ws);
+              } catch {}
+            }
             break;
           case "commit":
             if (msg.audioDurationMs && msg.audioDurationMs > 0) {

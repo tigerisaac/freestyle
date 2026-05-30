@@ -9,7 +9,6 @@ import {
   Cpu,
   FileText,
   Languages,
-  MessageSquare,
   Sliders,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -45,12 +44,6 @@ const navItems: NavItem[] = [
   },
   { to: "/settings/models", label: "Models", icon: Cpu, shortcut: "6" },
   { to: "/settings", label: "Settings", icon: Sliders, shortcut: "7" },
-  {
-    to: "/settings/feedback",
-    label: "Feedback",
-    icon: MessageSquare,
-    shortcut: "8",
-  },
 ];
 
 export default function AppShell(): React.JSX.Element {

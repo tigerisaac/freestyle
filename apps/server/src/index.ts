@@ -3,7 +3,6 @@ import { cors } from "hono/cors";
 import { captureException, initSentry } from "./lib/sentry.js";
 import apiKeys from "./routes/api-keys.js";
 import dictionary from "./routes/dictionary.js";
-import feedback from "./routes/feedback.js";
 import formats from "./routes/formats.js";
 import history from "./routes/history.js";
 import mcp from "./routes/mcp.js";
@@ -46,7 +45,6 @@ const app = new Hono()
   .route("/api/vocabulary", vocabulary)
   .route("/api/formats", formats)
   .route("/api/post-process", postProcessRoute)
-  .route("/api/feedback", feedback)
   .route("/api/whisper", whisper)
   .route("/mcp", mcp)
   .route("/stream", stream);

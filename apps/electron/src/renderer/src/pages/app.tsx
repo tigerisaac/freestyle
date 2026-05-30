@@ -154,6 +154,7 @@ export default function AppPage(): React.JSX.Element {
   const getInputVolume = useCallback(() => volumeRef.current, []);
 
   // ---- Queue drain ----
+  // biome-ignore lint/correctness/useExhaustiveDependencies: drainQueue only reads refs plus hidePill, which is declared later in this component, so adding it to the deps array would reference it before initialization (TDZ). The empty array is intentional.
   const drainQueue = useCallback(async () => {
     if (drainingRef.current) {
       drainAgainRef.current = true;
@@ -278,13 +279,42 @@ export default function AppPage(): React.JSX.Element {
         },
         onCleaned: () => {},
         onError: (msg) => {
-          if (!pillActiveRef.current) return;
           const resolver = streamResolverRef.current;
           if (resolver) {
             streamResolverRef.current = null;
+            const wavBlob = streamerRef.current?.getWavBlob() ?? null;
+            if (wavBlob) {
+              const durationMs = Date.now() - startTimeRef.current;
+              const headers: Record<string, string> = {
+                "Content-Type": "audio/wav",
+                "x-audio-duration-ms": String(durationMs),
+              };
+              if (appContextRef.current)
+                headers["x-app-context"] = appContextRef.current;
+              if (queueRef.current.length > 0 || drainingRef.current)
+                headers["x-skip-post-process"] = "true";
+              fetch(`${getApiBase()}/api/transcribe`, {
+                method: "POST",
+                body: wavBlob,
+                headers,
+              })
+                .then(async (res) => {
+                  if (!res.ok) return { raw: "", cleaned: "", error: msg };
+                  const data = await res.json();
+                  return {
+                    raw: (data.raw || "").trim(),
+                    cleaned: (data.cleaned || data.raw || "").trim(),
+                  };
+                })
+                .catch(() => ({ raw: "", cleaned: "", error: msg }))
+                .then(resolver);
+              return;
+            }
             resolver({ raw: "", cleaned: "", error: msg });
             return;
           }
+          if (!useStreamingRef.current) return;
+          if (!pillActiveRef.current) return;
           if (wantsMicRef.current) return;
           setState("error");
           setMessage(msg);
