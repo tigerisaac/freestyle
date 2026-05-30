@@ -96,6 +96,11 @@ let hotkeyActivationMode: "hold" | "toggle" = "hold";
 let micListener: MicListener | null = null;
 let hotkeyRecorder: HotkeyRecorder | null = null;
 
+function stopHotkeyRecorderProcess(): void {
+  hotkeyRecorder?.stop();
+  hotkeyRecorder = null;
+}
+
 // Register a custom app:// protocol that serves the renderer files.
 // All non-file paths fall back to index.html so BrowserRouter works in production.
 protocol.registerSchemesAsPrivileged([
@@ -245,6 +250,10 @@ function createSettingsWindow(): void {
   });
 
   settingsWindow.on("closed", () => {
+    if (hotkeyRecorder) {
+      stopHotkeyRecorderProcess();
+      registerHotkey(currentHotkeyAccel ?? undefined);
+    }
     settingsWindow = null;
   });
 
@@ -727,11 +736,6 @@ app.whenReady().then(async () => {
   });
 
   // IPC: hotkey recording — global native listener + renderer DOM on macOS
-  function stopHotkeyRecorderProcess(): void {
-    hotkeyRecorder?.stop();
-    hotkeyRecorder = null;
-  }
-
   ipcMain.on("hotkey-record:start", () => {
     // Pause the active hotkey listener so it doesn't fire during recording
     if (keyListener) {
@@ -1117,9 +1121,15 @@ function registerHotkey(hotkey?: string): void {
     );
     keyListener = null;
 
-    // Fallback: Electron globalShortcut (uses same hold/toggle handlers above)
+    // Fallback: globalShortcut has no key-up — always use toggle semantics
     const registered = globalShortcut.register(accel, () => {
-      handleNativeHotkeyDown();
+      if (!hotkeyPressed) {
+        hotkeyPressed = true;
+        sendHotkeyDown();
+      } else {
+        hotkeyPressed = false;
+        sendHotkeyUp();
+      }
     });
     if (!registered) {
       const errorPayload = {

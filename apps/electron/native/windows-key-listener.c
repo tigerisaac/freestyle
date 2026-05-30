@@ -422,9 +422,9 @@ int main(int argc, char* argv[]) {
     }
 
     if (!g_record_mode) {
-    if (g_targetVk == 0 && (g_requireCtrl || g_requireAlt || g_requireShift || g_requireWin)) {
-        g_useModifiersOnly = TRUE;
-    }
+        if (g_targetVk == 0 && (g_requireCtrl || g_requireAlt || g_requireShift || g_requireWin)) {
+            g_useModifiersOnly = TRUE;
+        }
 
         if (g_targetVk == 0 && !g_useModifiersOnly) {
             fprintf(stderr, "Error: Invalid key '%s'\n", argv[1]);

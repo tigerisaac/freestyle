@@ -165,8 +165,10 @@ export function useHotkeyRecorder(
   const [capturedCombo, setCapturedCombo] = useState<HotkeyCombo | null>(null);
   const onRecordRef = useRef(onRecord);
   onRecordRef.current = onRecord;
+  const recordingActiveRef = useRef(false);
 
   const startRecording = useCallback(() => {
+    recordingActiveRef.current = true;
     setState("recording");
     setLiveModifiers([]);
     setCapturedCombo(null);
@@ -174,6 +176,7 @@ export function useHotkeyRecorder(
   }, []);
 
   const cancelRecording = useCallback(() => {
+    recordingActiveRef.current = false;
     setState("idle");
     setLiveModifiers([]);
     setCapturedCombo(null);
@@ -187,6 +190,7 @@ export function useHotkeyRecorder(
     }
     // Re-register the global listener with the new accelerator (single IPC)
     window.api?.stopHotkeyRecording(accel ?? undefined);
+    recordingActiveRef.current = false;
     setState("idle");
     setLiveModifiers([]);
     setCapturedCombo(null);
@@ -207,6 +211,7 @@ export function useHotkeyRecorder(
     });
 
     const removeCancel = window.api.onHotkeyRecordCancel(() => {
+      recordingActiveRef.current = false;
       setState("idle");
       setLiveModifiers([]);
       setCapturedCombo(null);
@@ -251,10 +256,13 @@ export function useHotkeyRecorder(
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [state, cancelRecording]);
 
-  // Stop main process recording when component unmounts during recording
+  // Stop main process recording only if we started it (avoids re-registering hotkey on every settings navigation)
   useEffect(() => {
     return () => {
-      window.api?.stopHotkeyRecording();
+      if (recordingActiveRef.current) {
+        recordingActiveRef.current = false;
+        window.api?.stopHotkeyRecording();
+      }
     };
   }, []);
 

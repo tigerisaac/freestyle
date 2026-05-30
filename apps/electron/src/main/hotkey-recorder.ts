@@ -99,12 +99,20 @@ export class HotkeyRecorder {
     });
 
     this.process.on("close", () => {
+      const unexpected = this.target !== null;
       this.process = null;
+      if (unexpected) {
+        this.sendCancel();
+      }
     });
 
     this.process.on("error", (err) => {
       this.callbacks.onError?.(`Hotkey recorder process error: ${err.message}`);
+      const unexpected = this.target !== null;
       this.process = null;
+      if (unexpected) {
+        this.sendCancel();
+      }
     });
 
     return true;
