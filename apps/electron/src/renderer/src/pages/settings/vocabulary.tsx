@@ -3,7 +3,6 @@ import {
   createVocabularySchema,
 } from "@freestyle/validations";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useSearchShortcut } from "@renderer/hooks/use-search-shortcut";
 import { getClient } from "@renderer/lib/api";
 import { cn } from "@renderer/lib/utils";
 import {
@@ -146,7 +145,21 @@ export default function VocabularyPage(): React.JSX.Element {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchShortcutEnabled = !(total === 0 && !search && !showForm);
 
-  useSearchShortcut(searchInputRef, searchShortcutEnabled);
+  useEffect(() => {
+    if (!searchShortcutEnabled) return;
+
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "k") return;
+      e.preventDefault();
+      const input = searchInputRef.current;
+      if (!input) return;
+      input.focus();
+      input.select();
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [searchShortcutEnabled]);
 
   const exportJson = useCallback(async () => {
     try {
