@@ -1,4 +1,15 @@
 # Changelog
+## 0.0.11
+
+### New Features ✨
+
+- Add launch at startup setting and fix accessibility permission check by @MathurAditya724 in [#106](https://github.com/freestyle-voice/freestyle/pull/106)
+
+### Other
+
+- MIT license by @matteo8p in [#103](https://github.com/freestyle-voice/freestyle/pull/103)
+- fixed Issue: 73 by @srirae in [#102](https://github.com/freestyle-voice/freestyle/pull/102)
+
 ## 0.0.10
 
 ### Bug Fixes 🐛
