@@ -1,4 +1,16 @@
 # Changelog
+## 0.1.0
+
+### Bug Fixes 🐛
+
+- Guard deferred startup tasks against missing FREESTYLE_DB_PATH by @MathurAditya724 in [#127](https://github.com/freestyle-voice/freestyle/pull/127)
+- Cmake ENOENT on macOS when launched from Finder due to missing Homebrew PATH by @MathurAditya724 in [#125](https://github.com/freestyle-voice/freestyle/pull/125)
+- Local Whisper model fails to start on Windows due to binary path mismatch by @MathurAditya724 in [#124](https://github.com/freestyle-voice/freestyle/pull/124)
+
+### Internal Changes 🔧
+
+- Parallelize mic acquisition and app context fetch to reduce pill initialization delay by @MathurAditya724 in [#121](https://github.com/freestyle-voice/freestyle/pull/121)
+
 ## 0.0.13
 
 ### Bug Fixes 🐛
