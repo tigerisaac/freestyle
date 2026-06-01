@@ -197,18 +197,16 @@ def _handle_transcribe(message: dict[str, Any]) -> None:
         audio = _audio_from_message(message)
         if message.get("stream") or message.get("audio_format") == "pcm_s16le":
             emit_partials = bool(message.get("stream"))
+            def partial_handler(text: str) -> None:
+                if emit_partials:
+                    _send({"id": req_id, "type": "partial", "text": text})
+
             text = _stream_transcribe(
                 audio,
                 language=message.get("language"),
                 context=message.get("context"),
                 live=bool(message.get("live")),
-                on_partial=(
-                    lambda text: _send(
-                        {"id": req_id, "type": "partial", "text": text}
-                    )
-                    if emit_partials
-                    else lambda _text: None
-                ),
+                on_partial=partial_handler,
             )
         else:
             text = _transcribe(

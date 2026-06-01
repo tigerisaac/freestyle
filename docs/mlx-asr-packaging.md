@@ -16,11 +16,14 @@ The app now resolves the worker in this order:
 
 - `FREESTYLE_MLX_ASR_WORKER`
 - downloaded worker in `~/.cache/freestyle/mlx-asr/runtime/darwin-arm64`
-- `process.resourcesPath/mlx-asr/mlx_asr_worker/mlx_asr_worker`
-- `process.resourcesPath/mlx-asr/mlx_asr_worker`
-- local development `dist/mlx-asr/mlx_asr_worker` candidates
-- fallback Python script via `FREESTYLE_PYTHON` or a Python that already has
-  `mlx-audio`
+- packaged resources under `process.resourcesPath/mlx-asr`
+- local development candidates in `resources/mlx-asr`, `dist/mlx_asr_worker`,
+  `dist/mlx-asr`, `scripts/dist`, and repo-relative `../../dist` paths
+- ancestor `dist/mlx_asr_worker` and `dist/mlx-asr` searches from the compiled
+  server directory
+- fallback script via `FREESTYLE_MLX_ASR_SCRIPT`, packaged resources, local
+  `scripts/mlx_asr_server.py`, repo-relative script paths, or ancestor script
+  search; script mode uses `FREESTYLE_PYTHON` or a probed Python with `mlx-audio`
 
 PyInstaller can freeze the worker with the CPython interpreter and imported
 packages, so the end user does not need to install Python or `mlx-audio`. The
@@ -91,5 +94,5 @@ signed/notarized app build normally and press Download on a Qwen3 row.
 
 The model weights are still an unavoidable size question. Qwen3 ASR is a real
 local model, so the app must either ship selected weights inside the DMG or
-download them on first use. This PR keeps the DMG smaller and downloads weights
-from the Models screen.
+download them on first use. This approach keeps the DMG smaller and downloads
+weights from the Models screen.

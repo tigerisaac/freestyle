@@ -16,6 +16,7 @@ const DEEPGRAM_KEYTERM_MAX = 100;
 /** Keep streaming URLs short — long keyterm lists break the WS handshake. */
 const DEEPGRAM_STREAMING_KEYTERM_MAX = 25;
 const ELEVENLABS_REALTIME_KEYTERM_MAX = 50;
+const ELEVENLABS_BATCH_KEYTERM_MAX = 100;
 const ELEVENLABS_TERM_MAX_CHARS = 20;
 const ELEVENLABS_BATCH_TERM_MAX_CHARS = 50;
 
@@ -154,7 +155,7 @@ export function buildAsrVocabularyBias(
       if (!supportsElevenLabsKeyterms(short)) return null;
       const max = streaming
         ? ELEVENLABS_REALTIME_KEYTERM_MAX
-        : DEEPGRAM_KEYTERM_MAX;
+        : ELEVENLABS_BATCH_KEYTERM_MAX;
       const maxChars = streaming
         ? ELEVENLABS_TERM_MAX_CHARS
         : ELEVENLABS_BATCH_TERM_MAX_CHARS;

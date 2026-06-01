@@ -42,10 +42,28 @@ let startPromise: Promise<void> | null = null;
 let stdoutBuffer = "";
 let nextRequestId = 1;
 let unloadTimer: ReturnType<typeof setTimeout> | null = null;
+let lifecyclePromise: Promise<void> = Promise.resolve();
 const pending = new Map<number, PendingRequest>();
 
 let readyResolve: (() => void) | null = null;
 let readyReject: ((err: Error) => void) | null = null;
+
+function stopWorkerOnExit(): void {
+  const proc = workerProcess;
+  if (!proc) return;
+  try {
+    proc.stdin?.write(`${JSON.stringify({ type: "shutdown" })}\n`);
+  } catch {
+    // best effort during process teardown
+  }
+  try {
+    proc.kill(process.platform === "win32" ? undefined : "SIGTERM");
+  } catch {
+    // best effort during process teardown
+  }
+}
+
+process.once("exit", stopWorkerOnExit);
 
 export function isMlxServerRunning(): boolean {
   return workerProcess !== null && workerReady;
@@ -102,7 +120,15 @@ export function applyMlxAsrRetentionPolicy(): void {
   scheduleUnload();
 }
 
-export async function ensureMlxServerRunning(modelId: string): Promise<void> {
+export function ensureMlxServerRunning(modelId: string): Promise<void> {
+  const run = lifecyclePromise.then(() =>
+    ensureMlxServerRunningLocked(modelId),
+  );
+  lifecyclePromise = run.catch(() => undefined);
+  return run;
+}
+
+async function ensureMlxServerRunningLocked(modelId: string): Promise<void> {
   clearUnloadTimer();
   if (workerProcess && currentModelId === modelId && workerReady) {
     return;
@@ -277,7 +303,7 @@ async function spawnWorkerProcess(
       readyReject = null;
       failWorker(err);
       try {
-        proc.kill();
+        proc.kill(process.platform === "win32" ? undefined : "SIGKILL");
       } catch {
         // ignore
       }
@@ -469,6 +495,7 @@ function scheduleUnload(): void {
       console.error("[mlx-asr] Failed to unload idle worker:", err.message);
     });
   }, delayMs);
+  unloadTimer.unref?.();
 }
 
 export async function stopMlxServer(): Promise<void> {
@@ -502,7 +529,7 @@ export async function stopMlxServer(): Promise<void> {
 
     const killTimeout = setTimeout(() => {
       try {
-        proc.kill();
+        proc.kill(process.platform === "win32" ? undefined : "SIGKILL");
       } catch {
         // ignore
       }

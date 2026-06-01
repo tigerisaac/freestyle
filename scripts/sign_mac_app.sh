@@ -3,9 +3,10 @@
 # Usage: ./scripts/sign_mac_app.sh [path/to/Freestyle.app]
 #
 # WARNING: `codesign --deep` on the whole .app can break Electron Framework Team ID
-# matching and prevent the app from launching. Prefer signing only the MLX worker
-# unless you know the full bundle needs re-signing. After any re-sign, re-grant
-# Accessibility for Freestyle and macos-key-listener in System Settings.
+# matching and prevent the app from launching. This script intentionally signs
+# only the MLX worker and clears quarantine attributes for local testing.
+# After signing, re-grant Accessibility for Freestyle and macos-key-listener in
+# System Settings.
 set -euo pipefail
 
 APP="${1:-}"
@@ -25,10 +26,11 @@ MLX_WORKER="${APP}/Contents/Resources/mlx-asr/mlx_asr_worker"
 if [[ -d "${MLX_WORKER}" ]]; then
   echo "Signing MLX ASR worker bundle..."
   codesign --deep --force --sign - "${MLX_WORKER}"
+else
+  echo "MLX ASR worker bundle not found; skipping worker signing."
 fi
 
-echo "Signing Freestyle.app..."
-codesign --deep --force --sign - "${APP}"
+echo "Clearing quarantine attributes..."
 xattr -cr "${APP}"
 
 echo "Done. Open ${APP} and test Qwen (API port is usually 4649)."

@@ -7,6 +7,9 @@ DIST_DIR="${ROOT_DIR}/dist"
 ARCHIVE_NAME="mlx_asr_worker-darwin-arm64.tar.gz"
 
 PYTHON_BIN="${PYTHON_BIN:-python3.12}"
+PYINSTALLER_VERSION="${PYINSTALLER_VERSION:-6.20.0}"
+MLX_AUDIO_VERSION="${MLX_AUDIO_VERSION:-0.4.3}"
+HUGGINGFACE_HUB_VERSION="${HUGGINGFACE_HUB_VERSION:-1.17.0}"
 
 if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   echo "Python 3.12 is required to build the MLX ASR worker." >&2
@@ -16,7 +19,10 @@ fi
 
 "${PYTHON_BIN}" -m venv "${VENV_DIR}"
 "${VENV_DIR}/bin/python" -m pip install -U pip
-"${VENV_DIR}/bin/python" -m pip install -U pyinstaller mlx-audio "huggingface_hub[hf_xet]"
+"${VENV_DIR}/bin/python" -m pip install -U \
+  "pyinstaller==${PYINSTALLER_VERSION}" \
+  "mlx-audio==${MLX_AUDIO_VERSION}" \
+  "huggingface_hub[hf_xet]==${HUGGINGFACE_HUB_VERSION}"
 
 rm -rf "${ROOT_DIR}/build/mlx_asr_worker" "${DIST_DIR}/mlx_asr_worker"
 "${VENV_DIR}/bin/pyinstaller" \

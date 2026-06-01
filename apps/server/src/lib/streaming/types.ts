@@ -1,3 +1,5 @@
+import type { AsrVocabularyBias } from "../vocabulary-bias.js";
+
 export interface StreamCallbacks {
   onReady: (model: string) => void;
   onPartial: (text: string) => void;
@@ -14,8 +16,6 @@ export interface StreamSession {
   cancel(): void;
   close(): void;
 }
-
-import type { AsrVocabularyBias } from "../vocabulary-bias.js";
 
 export interface TranscribeOptions {
   audio: Uint8Array;

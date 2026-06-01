@@ -9,7 +9,7 @@ import {
   ShowMoreModelRowsButton,
 } from "@renderer/components/model-row";
 import { Toggle, VoiceRow } from "@renderer/components/voice-row";
-import { getApiBase, getClient } from "@renderer/lib/api";
+import { getClient } from "@renderer/lib/api";
 import {
   type AvailableModel,
   buildVoiceItems,
@@ -133,7 +133,7 @@ export default function OnboardingPage(): React.JSX.Element {
   // Load whisper status
   const loadWhisperStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${getApiBase()}/api/whisper/status`);
+      const res = await getClient().api.whisper.status.$get();
       if (res.ok) {
         const data: WhisperStatus = await res.json();
         setWhisperStatus(data);
@@ -145,10 +145,11 @@ export default function OnboardingPage(): React.JSX.Element {
 
   const loadMlxStatus = useCallback(async (refresh = false) => {
     try {
-      const url = refresh
-        ? `${getApiBase()}/api/mlx-asr/status?refresh=1`
-        : `${getApiBase()}/api/mlx-asr/status`;
-      const res = await fetch(url);
+      const res = refresh
+        ? await getClient().api["mlx-asr"].status.$get({
+            query: { refresh: "1" },
+          })
+        : await getClient().api["mlx-asr"].status.$get();
       if (res.ok) {
         const data: MlxAsrStatus = await res.json();
         setMlxStatus(data);
@@ -267,8 +268,8 @@ export default function OnboardingPage(): React.JSX.Element {
 
   const downloadWhisperModel = useCallback(
     async (modelId: string) => {
-      await fetch(`${getApiBase()}/api/whisper/models/${modelId}/download`, {
-        method: "POST",
+      await getClient().api.whisper.models[":model"].download.$post({
+        param: { model: modelId },
       });
       loadWhisperStatus();
     },
@@ -277,8 +278,8 @@ export default function OnboardingPage(): React.JSX.Element {
 
   const downloadMlxModel = useCallback(
     async (modelId: string) => {
-      await fetch(`${getApiBase()}/api/mlx-asr/models/${modelId}/download`, {
-        method: "POST",
+      await getClient().api["mlx-asr"].models[":model"].download.$post({
+        param: { model: modelId },
       });
       loadMlxStatus();
     },
@@ -344,11 +345,9 @@ export default function OnboardingPage(): React.JSX.Element {
               is_default: true,
             },
           });
-          fetch(`${getApiBase()}/api/mlx-asr/server/start`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ modelId: selectedMlxDefId }),
-          }).catch(() => {});
+          client.api["mlx-asr"].server.start
+            .$post({ json: { modelId: selectedMlxDefId } })
+            .catch(() => {});
         }
       } else if (selectedWhisperDefId && whisperStatus) {
         const def = whisperStatus.modelDefinitions.find(
@@ -364,11 +363,9 @@ export default function OnboardingPage(): React.JSX.Element {
               is_default: true,
             },
           });
-          fetch(`${getApiBase()}/api/whisper/server/start`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ modelId: selectedWhisperDefId }),
-          }).catch(() => {});
+          client.api.whisper.server.start
+            .$post({ json: { modelId: selectedWhisperDefId } })
+            .catch(() => {});
         }
       }
 

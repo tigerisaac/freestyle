@@ -13,7 +13,7 @@ import {
   ShowMoreModelRowsButton,
 } from "@renderer/components/model-row";
 import { Toggle, VoiceRow } from "@renderer/components/voice-row";
-import { getApiBase, getClient } from "@renderer/lib/api";
+import { getClient } from "@renderer/lib/api";
 import {
   type AvailableModel,
   buildVoiceItems,
@@ -240,7 +240,7 @@ export default function ModelsPage(): React.JSX.Element {
 
   const loadWhisperStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${getApiBase()}/api/whisper/status`);
+      const res = await getClient().api.whisper.status.$get();
       if (res.ok) {
         const data: WhisperStatus = await res.json();
         setWhisperStatus(data);
@@ -254,10 +254,11 @@ export default function ModelsPage(): React.JSX.Element {
 
   const loadMlxStatus = useCallback(async (refresh = false) => {
     try {
-      const url = refresh
-        ? `${getApiBase()}/api/mlx-asr/status?refresh=1`
-        : `${getApiBase()}/api/mlx-asr/status`;
-      const res = await fetch(url);
+      const res = refresh
+        ? await getClient().api["mlx-asr"].status.$get({
+            query: { refresh: "1" },
+          })
+        : await getClient().api["mlx-asr"].status.$get();
       if (res.ok) {
         const data: MlxAsrStatus = await res.json();
         setMlxStatus(data);
@@ -497,9 +498,7 @@ export default function ModelsPage(): React.JSX.Element {
       })
       .then(() => {
         if (next !== 0) return;
-        return fetch(`${getApiBase()}/api/mlx-asr/server/stop`, {
-          method: "POST",
-        });
+        return getClient().api["mlx-asr"].server.stop.$post();
       })
       .catch((err) => console.error("Failed to save MLX ASR keep-alive:", err));
   }, []);
@@ -565,8 +564,8 @@ export default function ModelsPage(): React.JSX.Element {
 
   const downloadWhisper = useCallback(
     async (modelId: string) => {
-      await fetch(`${getApiBase()}/api/whisper/models/${modelId}/download`, {
-        method: "POST",
+      await getClient().api.whisper.models[":model"].download.$post({
+        param: { model: modelId },
       });
       loadWhisperStatus();
     },
@@ -575,8 +574,8 @@ export default function ModelsPage(): React.JSX.Element {
 
   const cancelWhisper = useCallback(
     async (modelId: string) => {
-      await fetch(`${getApiBase()}/api/whisper/models/${modelId}/cancel`, {
-        method: "POST",
+      await getClient().api.whisper.models[":model"].cancel.$post({
+        param: { model: modelId },
       });
       loadWhisperStatus();
     },
@@ -585,8 +584,8 @@ export default function ModelsPage(): React.JSX.Element {
 
   const deleteWhisper = useCallback(
     async (modelId: string) => {
-      await fetch(`${getApiBase()}/api/whisper/models/${modelId}`, {
-        method: "DELETE",
+      await getClient().api.whisper.models[":model"].$delete({
+        param: { model: modelId },
       });
       loadWhisperStatus();
       loadData();
@@ -596,8 +595,8 @@ export default function ModelsPage(): React.JSX.Element {
 
   const downloadMlx = useCallback(
     async (modelId: string) => {
-      await fetch(`${getApiBase()}/api/mlx-asr/models/${modelId}/download`, {
-        method: "POST",
+      await getClient().api["mlx-asr"].models[":model"].download.$post({
+        param: { model: modelId },
       });
       loadMlxStatus();
     },
@@ -606,8 +605,8 @@ export default function ModelsPage(): React.JSX.Element {
 
   const cancelMlx = useCallback(
     async (modelId: string) => {
-      await fetch(`${getApiBase()}/api/mlx-asr/models/${modelId}/cancel`, {
-        method: "POST",
+      await getClient().api["mlx-asr"].models[":model"].cancel.$post({
+        param: { model: modelId },
       });
       loadMlxStatus();
     },
@@ -616,8 +615,8 @@ export default function ModelsPage(): React.JSX.Element {
 
   const deleteMlx = useCallback(
     async (modelId: string) => {
-      await fetch(`${getApiBase()}/api/mlx-asr/models/${modelId}`, {
-        method: "DELETE",
+      await getClient().api["mlx-asr"].models[":model"].$delete({
+        param: { model: modelId },
       });
       loadMlxStatus();
       loadData();
@@ -684,11 +683,9 @@ export default function ModelsPage(): React.JSX.Element {
           is_default: true,
         },
       });
-      fetch(`${getApiBase()}/api/whisper/server/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ modelId }),
-      }).catch(() => {});
+      getClient()
+        .api.whisper.server.start.$post({ json: { modelId } })
+        .catch(() => {});
       closePicker();
       loadData();
     },
@@ -706,11 +703,9 @@ export default function ModelsPage(): React.JSX.Element {
           is_default: true,
         },
       });
-      fetch(`${getApiBase()}/api/mlx-asr/server/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ modelId }),
-      }).catch(() => {});
+      getClient()
+        .api["mlx-asr"].server.start.$post({ json: { modelId } })
+        .catch(() => {});
       closePicker();
       loadData();
     },
