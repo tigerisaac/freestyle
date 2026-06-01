@@ -1,4 +1,22 @@
 # Changelog
+## 0.0.13
+
+### Bug Fixes 🐛
+
+- MLX onboarding selection bugs and local provider UI by @MathurAditya724 in [#116](https://github.com/freestyle-voice/freestyle/pull/116)
+- Address review findings from vocabulary and streaming PRs by @MathurAditya724 in [#114](https://github.com/freestyle-voice/freestyle/pull/114)
+
+### Internal Changes 🔧
+
+- Add E2E tests for API server and Electron app by @MathurAditya724 in [#113](https://github.com/freestyle-voice/freestyle/pull/113)
+
+### Other
+
+- Add basic telemetry by @matteo8p in [#117](https://github.com/freestyle-voice/freestyle/pull/117)
+- Freestyle desktop app UI opens by default all the time by @matteo8p in [#115](https://github.com/freestyle-voice/freestyle/pull/115)
+- MLX local models with Qwen3 by @tigerisaac in [#112](https://github.com/freestyle-voice/freestyle/pull/112)
+- ASR Vocabulary biasing and Streaming fixes by @tigerisaac in [#82](https://github.com/freestyle-voice/freestyle/pull/82)
+
 ## 0.0.12
 
 ### Bug Fixes 🐛
