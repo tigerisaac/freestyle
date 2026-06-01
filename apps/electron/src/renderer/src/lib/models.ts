@@ -100,7 +100,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   openrouter: "OpenRouter",
   "local-llm": "Local LLM",
   "local-whisper": "Local Whisper",
-  "local-mlx": "Local MLX (Qwen3)",
+  "local-mlx": "Local MLX",
 };
 
 export function displayProviderName(
@@ -124,7 +124,7 @@ export function formatSpeed(bps: number): string {
 export interface VoiceItem {
   key: string;
   kind: "local" | "cloud";
-  /** Which on-device engine powers this row (whisper.cpp vs MLX Qwen3). */
+  /** Which on-device engine powers this row (whisper.cpp vs MLX). */
   localEngine?: "whisper" | "mlx";
   name: string;
   provider: string;
@@ -214,9 +214,9 @@ export const LOCAL_VOICE_NOTES: Record<string, string> = {
   "base-q5_1": "Great everyday pick, smaller",
   large: "Best quality, still fast",
   "medium-q5_0": "High quality, modest size",
-  "qwen3-0.6b-5bit": "Fast · low memory · great for testing",
+  "qwen3-0.6b-5bit": "Fast · great for low memory",
   "qwen3-0.6b-8bit": "Balanced quality and size",
-  "qwen3-1.7b-8bit": "Best MLX accuracy",
+  "qwen3-1.7b-8bit": "Best Qwen accuracy",
 };
 
 export function buildVoiceItems(

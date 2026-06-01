@@ -3,6 +3,7 @@ import { getDb } from "../lib/db.js";
 import {
   MLX_ASR_MODELS,
   MLX_ASR_PROVIDER_ID,
+  MLX_ASR_PROVIDER_NAME,
 } from "../lib/mlx-asr/constants.js";
 import { getMlxModelStatus } from "../lib/mlx-asr/models.js";
 import { reconcileUnsupportedMlxVoiceDefault } from "../lib/mlx-asr/reconcile.js";
@@ -86,10 +87,10 @@ const LOCAL_WHISPER_VOICE_MODELS: AvailableModel[] = WHISPER_MODELS.map(
 
 const LOCAL_MLX_VOICE_MODELS: AvailableModel[] = MLX_ASR_MODELS.map((m) => ({
   provider_id: MLX_ASR_PROVIDER_ID,
-  provider_name: "Local MLX (Qwen3)",
+  provider_name: MLX_ASR_PROVIDER_NAME,
   model_id: `${MLX_ASR_PROVIDER_ID}/${m.id}`,
   model_name: m.displayName,
-  family: "qwen3-asr",
+  family: m.family,
   type: "voice" as const,
   cost_input: 0,
   cost_output: 0,

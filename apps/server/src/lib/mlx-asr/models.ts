@@ -2,9 +2,11 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { getDb } from "../db.js";
 import {
   getMlxAsrModel,
   MLX_ASR_MODELS,
+  MLX_ASR_PROVIDER_ID,
   type MlxAsrModelDef,
 } from "./constants.js";
 import {
@@ -21,6 +23,7 @@ import {
   getMlxRuntimeDownloadStatus,
   isMlxRuntimeInstallable,
 } from "./runtime.js";
+import { stopMlxServer } from "./server.js";
 
 export type MlxDownloadStatus =
   | "not_downloaded"
@@ -313,13 +316,25 @@ export function deleteMlxModel(modelId: string): boolean {
   if (!model) return false;
 
   cancelMlxDownload(modelId);
+  stopMlxServer().catch(() => {});
 
   const dir = hfRepoCacheDir(model.hfId);
   const existed = existsSync(dir);
   try {
     rmSync(dir, { recursive: true, force: true });
-    return existed;
   } catch {
     return false;
   }
+
+  try {
+    const db = getDb();
+    const configuredId = `${MLX_ASR_PROVIDER_ID}/${modelId}`;
+    db.prepare(
+      "DELETE FROM model_configs WHERE type = 'voice' AND provider = ? AND model_id = ?",
+    ).run(MLX_ASR_PROVIDER_ID, configuredId);
+  } catch {
+    // DB may be unavailable during shutdown
+  }
+
+  return existed;
 }

@@ -52,8 +52,12 @@ https://github.com/freestyle-voice/freestyle/releases/download/mlx-asr-worker-v1
 Override locally with `FREESTYLE_MLX_ASR_WORKER_URL`.
 
 This is not required for every Freestyle app release. Re-publish the runtime
-asset only when `scripts/mlx_asr_server.py`, MLX runtime dependencies, Python
-version, or the worker protocol changes.
+asset only when `scripts/mlx_asr_server.py`, MLX runtime dependencies, or Python
+version changes. Adding a new Hugging Face model to `MLX_ASR_MODELS` (Qwen, Parakeet,
+etc.) does **not** require republishing the worker — the same binary passes `--model`.
+
+App releases and `mlx-asr-worker-v1` are independent: ship app updates through Craft;
+ship worker updates through the **MLX ASR Runtime** workflow with `publish=true`.
 
 ### Local unsigned worker builds
 

@@ -3,6 +3,7 @@ import {
   isAppleSiliconMac,
   MLX_ASR_MODELS,
   MLX_ASR_PROVIDER_ID,
+  MLX_ASR_PROVIDER_NAME,
   MLX_UNSUPPORTED_PLATFORM_REASON,
 } from "../lib/mlx-asr/constants.js";
 import {
@@ -69,6 +70,7 @@ const mlxAsr = new Hono()
         ? MLX_ASR_MODELS.map((m) => ({
             id: m.id,
             hfId: m.hfId,
+            family: m.family,
             displayName: m.displayName,
             sizeBytes: m.sizeBytes,
             ramRequired: m.ramRequired,
@@ -78,7 +80,8 @@ const mlxAsr = new Hono()
           }))
         : [],
       setupHint: platformSupported
-        ? (blockedReason ?? "Press Download on a Qwen3 row to fetch weights.")
+        ? (blockedReason ??
+          `Press Download on a ${MLX_ASR_PROVIDER_NAME} model to fetch weights.`)
         : MLX_UNSUPPORTED_PLATFORM_REASON,
     });
   })
@@ -151,7 +154,7 @@ const mlxAsr = new Hono()
 
     const status = getMlxModelStatus(modelId);
     if (!status || status.status !== "ready") {
-      return c.json({ error: "Qwen3 ASR model is not downloaded yet." }, 400);
+      return c.json({ error: "MLX ASR model is not downloaded yet." }, 400);
     }
 
     startMlxInBackground(modelId);

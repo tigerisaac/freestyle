@@ -3,6 +3,12 @@
 
 The Node server keeps this process alive and sends newline-delimited JSON over
 stdin. Responses are newline-delimited JSON on stdout; logs go to stderr.
+
+Pass any Hugging Face model id that mlx-audio supports via --model, for example:
+  mlx-community/Qwen3-ASR-0.6B-5bit
+  mlx-community/parakeet-...  (when published for mlx-audio STT)
+
+Re-publish the frozen worker release when this script or mlx-audio dependencies change.
 """
 
 from __future__ import annotations
@@ -243,10 +249,8 @@ def main() -> None:
     parser.add_argument(
         "--model",
         default="mlx-community/Qwen3-ASR-0.6B-5bit",
-        help="HuggingFace MLX model id",
+        help="Hugging Face model id for mlx_audio.stt.load()",
     )
-    # Accept the old HTTP sidecar flags so packaged/dev callers fail softly while
-    # this branch transitions to the worker protocol.
     parser.add_argument("--host", default=None)
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--preload", action="store_true")

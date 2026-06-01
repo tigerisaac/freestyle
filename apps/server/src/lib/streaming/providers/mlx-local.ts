@@ -36,7 +36,7 @@ export class MlxLocalTranscriptionProvider implements TranscriptionProvider {
       );
     }
     if (getMlxModelStatus(modelId)?.status !== "ready") {
-      throw new Error("Qwen3 ASR model is not downloaded yet.");
+      throw new Error("MLX ASR model is not downloaded yet.");
     }
 
     const t0 = Date.now();
@@ -137,7 +137,7 @@ class MlxLocalStreamingSession implements StreamSession {
 
   private prepareWorker(): void {
     if (getMlxModelStatus(this.opts.modelId)?.status !== "ready") {
-      this.opts.callbacks.onError("Qwen3 ASR model is not downloaded yet.");
+      this.opts.callbacks.onError("MLX ASR model is not downloaded yet.");
       return;
     }
 
@@ -177,7 +177,7 @@ class MlxLocalStreamingSession implements StreamSession {
       return;
     }
     if (getMlxModelStatus(this.opts.modelId)?.status !== "ready") {
-      this.opts.callbacks.onError("Qwen3 ASR model is not downloaded yet.");
+      this.opts.callbacks.onError("MLX ASR model is not downloaded yet.");
       return;
     }
 

@@ -141,6 +141,11 @@ export default function ModelsPage(): React.JSX.Element {
   // Delete confirmation
   const [deleteProvider, setDeleteProvider] = useState<string | null>(null);
   const [deleteBlockedBy, setDeleteBlockedBy] = useState<string[]>([]);
+  const [pendingLocalDelete, setPendingLocalDelete] = useState<{
+    modelId: string;
+    engine: "whisper" | "mlx";
+    name: string;
+  } | null>(null);
 
   // Local Whisper
   const [whisperStatus, setWhisperStatus] = useState<WhisperStatus | null>(
@@ -642,16 +647,31 @@ export default function ModelsPage(): React.JSX.Element {
     [cancelMlx, cancelWhisper],
   );
 
-  const deleteLocalVoice = useCallback(
+  const requestDeleteLocalVoice = useCallback(
     (modelId: string, engine?: "whisper" | "mlx") => {
-      if (engine === "mlx") {
-        void deleteMlx(modelId);
-        return;
-      }
-      void deleteWhisper(modelId);
+      if (!engine) return;
+      const item = voiceItems.find(
+        (row) => row.defId === modelId && row.localEngine === engine,
+      );
+      setPendingLocalDelete({
+        modelId,
+        engine,
+        name: item?.name ?? modelId,
+      });
     },
-    [deleteMlx, deleteWhisper],
+    [voiceItems],
   );
+
+  const confirmDeleteLocalVoice = useCallback(async () => {
+    if (!pendingLocalDelete) return;
+    const { modelId, engine } = pendingLocalDelete;
+    setPendingLocalDelete(null);
+    if (engine === "mlx") {
+      await deleteMlx(modelId);
+      return;
+    }
+    await deleteWhisper(modelId);
+  }, [pendingLocalDelete, deleteMlx, deleteWhisper]);
 
   const selectLocalVoice = useCallback(
     async (modelId: string, modelName: string) => {
@@ -838,7 +858,9 @@ export default function ModelsPage(): React.JSX.Element {
           />
         </div>
 
-        {isLocalMlxActive && (
+        {(isLocalMlxActive ||
+          (mlxStatus?.platformSupported &&
+            mlxStatus.models.some((m) => m.status === "ready"))) && (
           <MlxMemorySection
             keepAliveMinutes={mlxKeepAliveMinutes}
             serverRunning={!!mlxStatus?.serverRunning}
@@ -864,7 +886,7 @@ export default function ModelsPage(): React.JSX.Element {
               }}
               onDownload={downloadLocalVoice}
               onCancel={cancelLocalVoice}
-              onDelete={deleteLocalVoice}
+              onDelete={requestDeleteLocalVoice}
               onClose={closePicker}
             />
           </div>
@@ -941,6 +963,15 @@ export default function ModelsPage(): React.JSX.Element {
               setDeleteBlockedBy([]);
             }}
             onConfirm={confirmDeleteProvider}
+          />
+        )}
+
+        {pendingLocalDelete && (
+          <LocalModelDeleteDialog
+            name={pendingLocalDelete.name}
+            engine={pendingLocalDelete.engine}
+            onClose={() => setPendingLocalDelete(null)}
+            onConfirm={() => void confirmDeleteLocalVoice()}
           />
         )}
       </div>
@@ -1198,6 +1229,16 @@ function Eyebrow({
   );
 }
 
+function mlxKeepAliveDescription(minutes: number): string {
+  if (minutes === 0) {
+    return "Unload the model from memory after each transcription. Uses less RAM, but the next dictation waits for a full reload.";
+  }
+  if (minutes === 1) {
+    return "Keep the model in memory for about 1 minute after you finish dictating, so quick follow-ups stay fast.";
+  }
+  return `Keep the model loaded in memory for up to ${minutes} minutes after dictation. Faster repeat use, more RAM while warm.`;
+}
+
 function MlxMemorySection({
   keepAliveMinutes,
   serverRunning,
@@ -1218,7 +1259,7 @@ function MlxMemorySection({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <Cpu className="text-primary h-3.5 w-3.5 shrink-0" />
-          <Eyebrow text="Qwen memory" accent />
+          <Eyebrow text="Model warming" accent />
           {serverRunning && (
             <span className="bg-primary/10 text-primary mono rounded-full px-2 py-0.5 text-[9px] uppercase tracking-[0.14em]">
               Loaded
@@ -1229,6 +1270,10 @@ function MlxMemorySection({
           {valueLabel}
         </span>
       </div>
+
+      <p className="text-muted-foreground mt-3 text-[12px] leading-relaxed">
+        {mlxKeepAliveDescription(keepAliveMinutes)}
+      </p>
 
       <div className="mt-4">
         <input
@@ -1245,8 +1290,8 @@ function MlxMemorySection({
           aria-label="MLX ASR keep-alive minutes"
         />
         <div className="text-muted-foreground mt-2 flex justify-between text-[11px]">
-          <span>Unload</span>
-          <span>10 min</span>
+          <span>Cold start (unload)</span>
+          <span>Keep warm 10 min</span>
         </div>
       </div>
       {blockedReason && (
@@ -2156,6 +2201,50 @@ function EditKeyDialog({
             Save
           </button>
         </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function LocalModelDeleteDialog({
+  name,
+  engine,
+  onClose,
+  onConfirm,
+}: {
+  name: string;
+  engine: "whisper" | "mlx";
+  onClose: () => void;
+  onConfirm: () => void;
+}): React.JSX.Element {
+  const engineLabel = engine === "mlx" ? "MLX" : "Whisper";
+  return (
+    <ModalShell>
+      <div className="mb-4">
+        <h3 className="text-foreground m-0 text-[17px] font-semibold">
+          Delete local model?
+        </h3>
+        <p className="text-muted-foreground mt-1 text-[13px] leading-relaxed">
+          Remove <span className="text-foreground/80 font-medium">{name}</span>{" "}
+          from this Mac. {engineLabel} weights are deleted from your local
+          cache; you can download them again later.
+        </p>
+      </div>
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="border-border hover:bg-secondary rounded-md border px-3.5 py-1.5 text-[12.5px]"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-md px-3.5 py-1.5 text-[12.5px] font-medium"
+        >
+          Delete
+        </button>
       </div>
     </ModalShell>
   );

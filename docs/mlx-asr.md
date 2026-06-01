@@ -1,6 +1,6 @@
-# Local MLX ASR (Qwen3)
+# Local MLX ASR
 
-Freestyle can use **on-device Qwen3-ASR** via [mlx-audio](https://github.com/Blaizzy/mlx-audio) on Apple Silicon.
+Freestyle can run **on-device speech models** via [mlx-audio](https://github.com/Blaizzy/mlx-audio) on Apple Silicon. The catalog is defined in `MLX_ASR_MODELS` (today: Qwen3-ASR variants); any Hugging Face repo that `mlx_audio.stt.load()` supports can be added there.
 
 ## Requirements
 
@@ -36,16 +36,30 @@ has saved.
 
 ## Architecture
 
-- Node server spawns `scripts/mlx_asr_server.py` as a local stdio worker
-- Packaged builds spawn a cached frozen `mlx_asr_worker` executable,
-  so users do not need a system Python or a `pip install`
-- Model stays loaded in the worker process for low latency, unless the
-  keep-alive setting is `0`
+- Node spawns `scripts/mlx_asr_server.py` (or frozen `mlx_asr_worker`) with `--model <hf-id>`
+- One worker process loads one model at startup; switching models restarts the worker
+- Packaged builds download the frozen worker on demand; users do not need system Python
 - Audio is written to a temporary WAV/PCM file and sent to the worker by path
-- `POST /api/transcribe` uses the configured default voice model
-- Settings -> Models -> Local MLX memory controls how long the worker stays
-  loaded after each request. `0` means cold start every request; `10` keeps the
-  model warm for ten idle minutes.
+- Settings -> Models -> MLX memory controls how long the worker stays up after a request
+
+### Adding or swapping models (e.g. Parakeet instead of Qwen)
+
+The worker script is **not Qwen-specific**. It calls `mlx_audio.stt.load(hf_id)` for whatever
+you pass on `--model`.
+
+1. Add a catalog entry in `MLX_ASR_MODELS` (`apps/server/src/lib/mlx-asr/constants.ts`):
+   `id`, `hfId` (Hugging Face repo), `family`, display metadata.
+2. Users download weights from the Models screen (same as today).
+3. Re-publish the frozen worker only when `scripts/mlx_asr_server.py` or mlx-audio deps change,
+   not when you add a new `hfId` to the catalog.
+
+Dev smoke test with any mlx-audio STT model:
+
+```bash
+python3 scripts/mlx_asr_server.py --model <your-hf-repo-id> --download-model
+python3 scripts/mlx_asr_server.py --model <your-hf-repo-id>
+# then send transcribe JSON lines on stdin
+```
 
 ## Development
 

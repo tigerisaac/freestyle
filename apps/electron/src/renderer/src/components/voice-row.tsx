@@ -233,7 +233,7 @@ export function VoiceRow({
               ) : (
                 <span>
                   {item.localEngine === "mlx"
-                    ? "Downloading Qwen weights..."
+                    ? "Downloading model weights..."
                     : "Verifying..."}
                 </span>
               )}
@@ -270,10 +270,11 @@ export function VoiceRow({
                     onClick={() =>
                       item.defId && onDelete(item.defId, item.localEngine)
                     }
-                    className="text-muted-foreground hover:text-destructive hover:bg-secondary rounded p-1.5 opacity-0 transition-opacity group-hover:opacity-100"
-                    title="Delete model"
+                    className="border-border text-muted-foreground hover:text-destructive hover:border-destructive/30 hover:bg-destructive/5 flex items-center gap-1 rounded-[8px] border px-2.5 py-2 text-[12px] font-medium transition-colors"
+                    title="Remove downloaded model from disk"
                   >
                     <Trash2 size={13} />
+                    Delete
                   </button>
                 )}
               </>
