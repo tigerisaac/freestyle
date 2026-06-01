@@ -8,7 +8,7 @@ Freestyle can run **on-device speech models** via [mlx-audio](https://github.com
 - Packaged app: downloaded `mlx_asr_worker` runtime
 - Development fallback: Python 3.12+ with `pip install mlx-audio`
 
-Optional: set `FREESTYLE_PYTHON` to your venv’s `python` if it is not on `PATH`.
+Optional: set `FREESTYLE_PYTHON` to a virtualenv `python` if it is not on `PATH`.
 Optional: set `FREESTYLE_MLX_ASR_WORKER` to a frozen worker executable.
 
 ## Setup
@@ -44,20 +44,20 @@ has saved.
 
 ### Adding or swapping models (e.g. Parakeet instead of Qwen)
 
-The worker script is **not Qwen-specific**. It calls `mlx_audio.stt.load(hf_id)` for whatever
-you pass on `--model`.
+The worker script is **not Qwen-specific**. It calls `mlx_audio.stt.load(hf_id)`
+for the model passed on `--model`.
 
 1. Add a catalog entry in `MLX_ASR_MODELS` (`apps/server/src/lib/mlx-asr/constants.ts`):
    `id`, `hfId` (Hugging Face repo), `family`, display metadata.
 2. Users download weights from the Models screen (same as today).
-3. Re-publish the frozen worker only when `scripts/mlx_asr_server.py` or mlx-audio deps change,
-   not when you add a new `hfId` to the catalog.
+3. Re-publish the frozen worker only when `scripts/mlx_asr_server.py` or
+   mlx-audio deps change, not when adding a new `hfId` to the catalog.
 
 Dev smoke test with any mlx-audio STT model:
 
 ```bash
-python3 scripts/mlx_asr_server.py --model <your-hf-repo-id> --download-model
-python3 scripts/mlx_asr_server.py --model <your-hf-repo-id>
+python3 scripts/mlx_asr_server.py --model <hf-repo-id> --download-model
+python3 scripts/mlx_asr_server.py --model <hf-repo-id>
 # then send transcribe JSON lines on stdin
 ```
 
