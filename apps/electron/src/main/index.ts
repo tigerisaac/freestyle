@@ -20,7 +20,6 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import server, {
-  autoStartMlxAsrServer,
   autoStartWhisperServer,
   reconcileUnsupportedMlxVoiceDefault,
 } from "@freestyle/server";
@@ -829,7 +828,6 @@ app.whenReady().then(async () => {
   // Run non-critical server startup tasks now that the DB path is set
   reconcileUnsupportedMlxVoiceDefault();
   autoStartWhisperServer();
-  autoStartMlxAsrServer();
 
   // Start the Hono HTTP server with WebSocket support (or reuse an existing one)
   function startServer(port: number): void {

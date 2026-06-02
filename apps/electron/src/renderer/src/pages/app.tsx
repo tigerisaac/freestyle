@@ -764,15 +764,6 @@ export default function AppPage(): React.JSX.Element {
     setPillSide(pos?.endsWith("right") ? "right" : "center");
   }, []);
 
-  // Open the streaming WebSocket early so MLX can load before the first hotkey press.
-  useEffect(() => {
-    try {
-      getStreamer();
-    } catch {
-      // Server may not be up yet; startCapture will retry.
-    }
-  }, [getStreamer]);
-
   useEffect(() => {
     getClient()
       .api.settings[":key"].$get({ param: { key: "sound_enabled" } })

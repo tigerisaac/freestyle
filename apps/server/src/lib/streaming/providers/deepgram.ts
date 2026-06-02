@@ -179,9 +179,6 @@ export class DeepgramTranscriptionProvider implements TranscriptionProvider {
         commitRequested = false;
         finalDelivered = false;
       },
-      waitUntilReady(): Promise<void> {
-        return Promise.resolve();
-      },
       commit(): void {
         commitRequested = true;
         clearCommitTimeout();

@@ -26,6 +26,8 @@ const stream = new Hono().get(
     /** Audio received while the upstream socket is still connecting. */
     let pendingAudioChunks: ArrayBuffer[] = [];
     let reconnectAttempts = 0;
+    let readyToken = 0;
+    let notifiedReadyToken = 0;
     const MAX_RECONNECT_ATTEMPTS = 3;
 
     function flushPendingAudio(): void {
@@ -39,7 +41,10 @@ const stream = new Hono().get(
     function notifySessionReady(
       ws: { send: (data: string) => void },
       model: string,
+      token: number,
     ): void {
+      if (token !== readyToken || notifiedReadyToken === token) return;
+      notifiedReadyToken = token;
       flushPendingAudio();
       ws.send(JSON.stringify({ type: "session.ready", model }));
     }
@@ -48,12 +53,14 @@ const stream = new Hono().get(
       ws: { send: (data: string) => void },
       session: StreamSession,
       model: string,
+      token: number,
     ): void {
-      const ready = session.waitUntilReady?.() ?? Promise.resolve();
+      const ready = session.waitUntilReady?.();
+      if (!ready) return;
       void ready
         .then(() => {
-          if (closed) return;
-          notifySessionReady(ws, model);
+          if (closed || upstream !== session) return;
+          notifySessionReady(ws, model, token);
         })
         .catch((err: Error) => {
           if (closed) return;
@@ -111,6 +118,8 @@ const stream = new Hono().get(
       );
 
       if (!canStream) {
+        readyToken++;
+        notifiedReadyToken = readyToken;
         ws.send(JSON.stringify({ type: "session.ready", model: modelShort }));
         return;
       }
@@ -121,15 +130,17 @@ const stream = new Hono().get(
         true,
       );
 
+      const token = ++readyToken;
       const session = openStreamingSession({
         providerId: defaults.voice.provider,
         apiKey,
         model: defaults.voice.model_id,
         bias,
         callbacks: {
-          onReady: () => {
+          onReady: (readyModel) => {
             if (upstream !== session) return;
             reconnectAttempts = 0;
+            notifySessionReady(ws, readyModel || modelShort, token);
           },
           onPartial: (text) => {
             if (upstream !== session) return;
@@ -236,7 +247,7 @@ const stream = new Hono().get(
       });
       upstream = session;
       if (canStream) {
-        afterSessionReady(ws, session, modelShort);
+        afterSessionReady(ws, session, modelShort, token);
       }
     }
 
@@ -309,11 +320,13 @@ const stream = new Hono().get(
               if (upstream.reset) {
                 upstream.reset();
                 const voice = voiceDefaults ?? getDefaultModels().voice;
-                if (voice) {
+                if (voice && upstream.waitUntilReady) {
+                  const token = ++readyToken;
                   afterSessionReady(
                     ws,
                     upstream,
                     stripProviderPrefix(voice.model_id),
+                    token,
                   );
                 }
               } else {
