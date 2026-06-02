@@ -16,7 +16,7 @@ if (process.platform === "darwin") {
 }
 
 import { execFile } from "node:child_process";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import server, {
@@ -533,6 +533,47 @@ function showSettingsWindow(): void {
   settingsWindow.focus();
 }
 
+function isRunningFromReadOnlyLocation(): boolean {
+  if (process.platform !== "darwin") return false;
+  const exePath = app.getPath("exe");
+  if (
+    exePath.startsWith("/Volumes/") ||
+    exePath.includes("/AppTranslocation/")
+  ) {
+    return true;
+  }
+  try {
+    const { accessSync, constants } = require("node:fs");
+    accessSync(dirname(exePath), constants.W_OK);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+const READ_ONLY_UPDATE_RE = /EROFS|EACCES|read[- ]only|permission denied/i;
+
+let readOnlyDialogShown = false;
+
+function showMoveToApplicationsDialog(): void {
+  if (readOnlyDialogShown) return;
+  readOnlyDialogShown = true;
+  dialog.showMessageBox({
+    type: "warning",
+    title: "Move to Applications",
+    message:
+      "Freestyle is running from a read-only location and can\u2019t update itself.",
+    detail:
+      "Please drag Freestyle into your Applications folder and relaunch it from there.",
+    buttons: ["OK"],
+  });
+}
+
+function restartAndUpdate(): void {
+  isUpdaterQuitting = true;
+  autoUpdater.quitAndInstall();
+}
+
 async function checkForUpdatesFromMenu(): Promise<void> {
   if (is.dev) {
     dialog.showMessageBox({
@@ -540,6 +581,14 @@ async function checkForUpdatesFromMenu(): Promise<void> {
       title: "Check for Updates",
       message: "Update checking is not available in development mode.",
     });
+    return;
+  }
+  if (isRunningFromReadOnlyLocation()) {
+    showMoveToApplicationsDialog();
+    return;
+  }
+  if (updateDownloadState === "downloaded") {
+    restartAndUpdate();
     return;
   }
   try {
@@ -566,32 +615,33 @@ async function checkForUpdatesFromMenu(): Promise<void> {
         detail: `Current version: v${app.getVersion()}`,
       });
     }
-  } catch {
-    dialog.showMessageBox({
-      type: "error",
-      title: "Update Check Failed",
-      message: "Unable to check for updates. Please try again later.",
-    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "";
+    if (READ_ONLY_UPDATE_RE.test(msg) && isRunningFromReadOnlyLocation()) {
+      showMoveToApplicationsDialog();
+    } else {
+      dialog.showMessageBox({
+        type: "error",
+        title: "Update Check Failed",
+        message: "Unable to check for updates. Please try again later.",
+      });
+    }
   }
 }
 
-function createTray(): void {
-  const trayImage = nativeImage.createFromPath(trayIconPath);
-  // Mark as template so macOS adapts to menu bar light/dark
-  trayImage.setTemplateImage(true);
+function buildUpdateMenuItem(): { label: string; click: () => void } {
+  return updateDownloadState === "downloaded"
+    ? { label: "Restart & Update", click: () => restartAndUpdate() }
+    : { label: "Check for Updates...", click: () => checkForUpdatesFromMenu() };
+}
 
-  tray = new Tray(trayImage);
-  tray.setToolTip("Freestyle");
-
-  const contextMenu = Menu.buildFromTemplate([
+function buildTrayContextMenu(): Menu {
+  return Menu.buildFromTemplate([
     {
       label: "Settings",
       click: () => showSettingsWindow(),
     },
-    {
-      label: "Check for Updates...",
-      click: () => checkForUpdatesFromMenu(),
-    },
+    buildUpdateMenuItem(),
     ...(is.dev
       ? [
           { type: "separator" as const },
@@ -609,32 +659,29 @@ function createTray(): void {
       },
     },
   ]);
+}
+
+function createTray(): void {
+  const trayImage = nativeImage.createFromPath(trayIconPath);
+  // Mark as template so macOS adapts to menu bar light/dark
+  trayImage.setTemplateImage(true);
+
+  tray = new Tray(trayImage);
+  tray.setToolTip("Freestyle");
 
   // Left-click: open the settings window
   tray.on("click", () => {
     showSettingsWindow();
   });
 
-  // Right-click: show context menu
+  // Right-click: show context menu (rebuilt each time for up-to-date labels)
   tray.on("right-click", () => {
-    tray!.popUpContextMenu(contextMenu);
+    tray!.popUpContextMenu(buildTrayContextMenu());
   });
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.whenReady().then(async () => {
-  // Set app user model id for windows
-  electronApp.setAppUserModelId("com.freestyle.app");
-
-  // Override app.name so macOS menu shows "Freestyle" instead of the package name
-  app.setName("Freestyle");
-
-  // Register the custom app:// protocol for production SPA support
-  registerAppProtocol();
-
-  // Set a minimal application menu
+// Rebuild the application menu so update-related labels stay current.
+function rebuildMenus(): void {
   const appMenu = Menu.buildFromTemplate([
     ...(process.platform === "darwin"
       ? [
@@ -649,10 +696,7 @@ app.whenReady().then(async () => {
                 click: () => showSettingsWindow(),
               },
               { type: "separator" as const },
-              {
-                label: "Check for Updates...",
-                click: () => checkForUpdatesFromMenu(),
-              },
+              buildUpdateMenuItem(),
               ...(is.dev
                 ? [
                     { type: "separator" as const },
@@ -690,6 +734,22 @@ app.whenReady().then(async () => {
     },
   ]);
   Menu.setApplicationMenu(appMenu);
+}
+
+// This method will be called when Electron has finished
+// initialization and is ready to create browser windows.
+// Some APIs can only be used after this event occurs.
+app.whenReady().then(async () => {
+  // Set app user model id for windows
+  electronApp.setAppUserModelId("com.freestyle.app");
+
+  // Override app.name so macOS menu shows "Freestyle" instead of the package name
+  app.setName("Freestyle");
+
+  // Register the custom app:// protocol for production SPA support
+  registerAppProtocol();
+
+  rebuildMenus();
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -907,10 +967,11 @@ app.whenReady().then(async () => {
   }
 
   // -- Auto-updater with IPC notifications --
-  // Track the version we already notified about so periodic checks don't
-  // spam the user with repeat notifications every 5 minutes.
-  let notifiedVersion: string | null = null;
-  let updateDownloadState: "idle" | "downloading" | "downloaded" = "idle";
+  // Track versions we already notified about so periodic checks don't spam.
+  // Separate flags for "available" vs "downloaded" because both events fire
+  // for the same version and each deserves one notification.
+  let notifiedAvailableVersion: string | null = null;
+  let notifiedDownloadedVersion: string | null = null;
 
   if (!is.dev) {
     const autoUpdateEnabled = readSettings().autoUpdate !== false;
@@ -926,8 +987,11 @@ app.whenReady().then(async () => {
         settingsWindow?.webContents.send("updater:downloading");
       }
       // Only show a native notification once per discovered version
-      if (Notification.isSupported() && notifiedVersion !== info.version) {
-        notifiedVersion = info.version;
+      if (
+        Notification.isSupported() &&
+        notifiedAvailableVersion !== info.version
+      ) {
+        notifiedAvailableVersion = info.version;
         const note = new Notification({
           title: "Freestyle Update Available",
           body: autoUpdater.autoDownload
@@ -944,7 +1008,12 @@ app.whenReady().then(async () => {
       settingsWindow?.webContents.send("updater:downloaded", {
         version: info.version,
       });
-      if (Notification.isSupported()) {
+      // Only show a native notification once per version
+      if (
+        Notification.isSupported() &&
+        notifiedDownloadedVersion !== info.version
+      ) {
+        notifiedDownloadedVersion = info.version;
         const note = new Notification({
           title: "Update Ready to Install",
           body: `Version ${info.version} has been downloaded. Restart to update.`,
@@ -952,21 +1021,43 @@ app.whenReady().then(async () => {
         note.on("click", () => showSettingsWindow());
         note.show();
       }
+      // No need to keep polling once the update is downloaded
+      if (updateCheckTimer) {
+        clearInterval(updateCheckTimer);
+        updateCheckTimer = null;
+      }
+      rebuildMenus();
     });
 
     autoUpdater.on("error", (err) => {
       if (updateDownloadState === "downloading") {
         updateDownloadState = "idle";
       }
-      settingsWindow?.webContents.send("updater:error", {
-        message: err?.message ?? "Update failed",
-      });
+      const msg = err?.message ?? "Update failed";
+      if (READ_ONLY_UPDATE_RE.test(msg) && isRunningFromReadOnlyLocation()) {
+        showMoveToApplicationsDialog();
+        settingsWindow?.webContents.send("updater:error", {
+          message:
+            "Freestyle is running from a read-only location. Move it to Applications and relaunch.",
+        });
+      } else {
+        settingsWindow?.webContents.send("updater:error", { message: msg });
+      }
     });
 
-    autoUpdater.checkForUpdatesAndNotify();
-
-    // Always start periodic background checking regardless of auto-update setting
-    startUpdateCheckInterval();
+    if (isRunningFromReadOnlyLocation()) {
+      if (Notification.isSupported()) {
+        const note = new Notification({
+          title: "Move Freestyle to Applications",
+          body: "Freestyle can\u2019t update from this location. Move it to your Applications folder and relaunch.",
+        });
+        note.on("click", () => showSettingsWindow());
+        note.show();
+      }
+    } else {
+      autoUpdater.checkForUpdatesAndNotify();
+      startUpdateCheckInterval();
+    }
   }
 
   ipcMain.on("updater:download", () => {
@@ -975,8 +1066,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("updater:install", () => {
-    isUpdaterQuitting = true;
-    autoUpdater.quitAndInstall();
+    restartAndUpdate();
   });
 
   ipcMain.handle("updater:check", async () => {
@@ -1309,6 +1399,8 @@ app.on("activate", () => {
 // Gracefully shut down the HTTP server and flush Sentry before quitting
 let isUpdaterQuitting = false;
 let isQuitting = false;
+
+let updateDownloadState: "idle" | "downloading" | "downloaded" = "idle";
 
 function cleanupBeforeQuit(): void {
   fetch(`http://127.0.0.1:${serverPort}/api/whisper/server/stop`, {
