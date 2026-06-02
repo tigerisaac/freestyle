@@ -121,6 +121,14 @@ class MlxLocalStreamingSession implements StreamSession {
   commit(): void {
     this.clearTimer();
     this.commitRequested = true;
+    if (
+      !this.inFlight &&
+      !this.lastText &&
+      this.audioDurationMs() >= MIN_PARTIAL_AUDIO_MS
+    ) {
+      this.runInference(false);
+      return;
+    }
     this.runInference(true);
   }
 
@@ -159,6 +167,7 @@ class MlxLocalStreamingSession implements StreamSession {
           return;
         }
         this.opts.callbacks.onReady(this.opts.modelId);
+        this.runReadyPreview(generation);
       },
     );
     this.workerReadyPromise.catch((err: Error) => {
@@ -174,6 +183,21 @@ class MlxLocalStreamingSession implements StreamSession {
       this.partialTimer = null;
       this.runInference(false);
     }, PARTIAL_INTERVAL_MS);
+  }
+
+  private runReadyPreview(generation: number): void {
+    if (
+      this.closed ||
+      this.canceled ||
+      this.inFlight ||
+      this.lastText ||
+      generation !== this.generation ||
+      this.audioDurationMs() < MIN_PARTIAL_AUDIO_MS
+    ) {
+      return;
+    }
+    this.clearTimer();
+    this.runInference(false);
   }
 
   private runInference(final: boolean): void {
