@@ -8,6 +8,53 @@ function execAsync(cmd: string): Promise<void> {
   });
 }
 
+/** Re-activate the app that was frontmost when recording started. */
+async function focusAppForPaste(appContextJson?: string | null): Promise<void> {
+  if (!appContextJson) return;
+
+  let appName: string | undefined;
+  try {
+    const ctx = JSON.parse(appContextJson) as { app?: string };
+    appName = ctx.app;
+  } catch {
+    return;
+  }
+
+  if (!appName || appName === "Freestyle") return;
+
+  if (process.platform === "darwin") {
+    await new Promise<void>((resolve, reject) => {
+      execFile("open", ["-a", appName!], (err) =>
+        err ? reject(err) : resolve(),
+      );
+    });
+    await new Promise((r) => setTimeout(r, 120));
+    return;
+  }
+
+  if (process.platform === "win32") {
+    const script = `
+      $p = Get-Process -Name '${appName.replace(/'/g, "''")}' -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($p) {
+        Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+          public class Win32Focus {
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+          }
+"@
+        [Win32Focus]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
+      }
+    `;
+    await new Promise<void>((resolve, reject) => {
+      execFile("powershell", ["-NoProfile", "-Command", script], (err) =>
+        err ? reject(err) : resolve(),
+      );
+    });
+    await new Promise((r) => setTimeout(r, 120));
+  }
+}
+
 function execFileAsync(path: string, args: string[] = []): Promise<number> {
   return new Promise((resolve, reject) => {
     execFile(path, args, (err) => {
@@ -114,11 +161,16 @@ const PASTE_SETTLE_LEGACY_MS: Record<string, number> = {
   linux: 300,
 };
 
-export async function pasteIntoFocusedApp(text: string): Promise<void> {
+export async function pasteIntoFocusedApp(
+  text: string,
+  appContextJson?: string | null,
+): Promise<void> {
   if (process.env.NODE_ENV !== "production") {
     console.log("[paste] text:", JSON.stringify(text));
   }
   if (!text?.trim()) return;
+
+  await focusAppForPaste(appContextJson);
 
   const prior = clipboard.readText();
   clipboard.writeText(text);

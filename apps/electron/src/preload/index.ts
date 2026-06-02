@@ -3,8 +3,8 @@ import { contextBridge, ipcRenderer } from "electron";
 
 // Custom APIs for renderer
 const api = {
-  pasteText: (text: string): Promise<void> =>
-    ipcRenderer.invoke("paste:text", text),
+  pasteText: (text: string, appContext?: string | null): Promise<void> =>
+    ipcRenderer.invoke("paste:text", text, appContext),
   updateHotkey: (hotkey: string): void =>
     ipcRenderer.send("hotkey:update", hotkey),
   reloadHotkey: (): void => ipcRenderer.send("hotkey:reload"),

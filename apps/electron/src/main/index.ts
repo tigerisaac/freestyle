@@ -698,9 +698,12 @@ app.whenReady().then(async () => {
   });
 
   // IPC: paste text at cursor
-  ipcMain.handle("paste:text", async (_event, text: string) => {
-    await pasteIntoFocusedApp(text);
-  });
+  ipcMain.handle(
+    "paste:text",
+    async (_event, text: string, appContext?: string | null) => {
+      await pasteIntoFocusedApp(text, appContext);
+    },
+  );
 
   // IPC: hide the pill window on request from renderer
   ipcMain.on("pill:hide", () => {
