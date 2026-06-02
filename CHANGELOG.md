@@ -1,4 +1,19 @@
 # Changelog
+## 0.1.2
+
+### New Features ✨
+
+- Add output mode setting to copy instead of paste by @Olaiwonismail in [#141](https://github.com/freestyle-voice/freestyle/pull/141)
+
+### Bug Fixes 🐛
+
+- Address MLX streaming parallel-load follow-ups by @MathurAditya724 in [#146](https://github.com/freestyle-voice/freestyle/pull/146)
+
+### Other
+
+- MLX Streaming + Parallel loading by @tigerisaac in [#143](https://github.com/freestyle-voice/freestyle/pull/143)
+- Add CI Status summary job to satisfy ruleset required check by @MathurAditya724 in [#145](https://github.com/freestyle-voice/freestyle/pull/145)
+
 ## 0.1.1
 
 ### Internal Changes 🔧
