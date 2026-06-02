@@ -11,6 +11,7 @@ import {
 import type {
   StreamCallbacks,
   StreamingSessionOptions,
+  StreamResetOptions,
   StreamSession,
   TranscribeOptions,
   TranscribeResult,
@@ -62,8 +63,6 @@ export class MlxLocalTranscriptionProvider implements TranscriptionProvider {
     const modelId = stripProviderPrefix(opts.model);
     return new MlxLocalStreamingSession({
       modelId,
-      language:
-        opts.language && opts.language !== "auto" ? opts.language : undefined,
       context: opts.bias?.kind === "prompt" ? opts.bias.text : undefined,
       callbacks: opts.callbacks,
     });
@@ -86,7 +85,6 @@ class MlxLocalStreamingSession implements StreamSession {
   constructor(
     private readonly opts: {
       modelId: string;
-      language?: string;
       context?: string;
       callbacks: StreamCallbacks;
     },
@@ -104,7 +102,7 @@ class MlxLocalStreamingSession implements StreamSession {
     this.schedulePartial();
   }
 
-  reset(): void {
+  reset(_opts?: StreamResetOptions): void {
     this.clearTimer();
     this.chunks = [];
     this.sampleCount = 0;
@@ -124,18 +122,6 @@ class MlxLocalStreamingSession implements StreamSession {
   commit(): void {
     this.clearTimer();
     this.commitRequested = true;
-    // When no partial has been shown yet and enough audio is buffered, run a
-    // non-final (partial) inference first so the user sees intermediate text
-    // while the final pass runs.  The commitRequested flag causes the final
-    // pass to start automatically in runInference's .finally() handler.
-    if (
-      !this.inFlight &&
-      !this.lastText &&
-      this.audioDurationMs() >= MIN_PARTIAL_AUDIO_MS
-    ) {
-      this.runInference(false);
-      return;
-    }
     this.runInference(true);
   }
 
@@ -147,7 +133,6 @@ class MlxLocalStreamingSession implements StreamSession {
     this.dirty = false;
     this.commitRequested = false;
     this.generation++;
-    applyMlxAsrRetentionPolicy();
   }
 
   close(): void {
@@ -174,7 +159,6 @@ class MlxLocalStreamingSession implements StreamSession {
           return;
         }
         this.opts.callbacks.onReady(this.opts.modelId);
-        this.runReadyPreview(generation);
       },
     );
     this.workerReadyPromise.catch((err: Error) => {
@@ -190,21 +174,6 @@ class MlxLocalStreamingSession implements StreamSession {
       this.partialTimer = null;
       this.runInference(false);
     }, PARTIAL_INTERVAL_MS);
-  }
-
-  private runReadyPreview(generation: number): void {
-    if (
-      this.closed ||
-      this.canceled ||
-      this.inFlight ||
-      this.lastText ||
-      generation !== this.generation ||
-      this.audioDurationMs() < MIN_PARTIAL_AUDIO_MS
-    ) {
-      return;
-    }
-    this.clearTimer();
-    this.runInference(false);
   }
 
   private runInference(final: boolean): void {
@@ -239,7 +208,6 @@ class MlxLocalStreamingSession implements StreamSession {
           modelId: this.opts.modelId,
           pcm: new Uint8Array(audio),
           sampleRate: STREAM_SAMPLE_RATE,
-          language: this.opts.language,
           context: this.opts.context,
           live: !final,
           deferUnload: true,
@@ -268,9 +236,6 @@ class MlxLocalStreamingSession implements StreamSession {
       })
       .finally(() => {
         if (this.closed || this.canceled || generation !== this.generation) {
-          if (this.closed || this.canceled) {
-            applyMlxAsrRetentionPolicy();
-          }
           return;
         }
         this.inFlight = false;

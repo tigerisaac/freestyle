@@ -25,7 +25,7 @@ export class OpenAITranscriptionProvider implements TranscriptionProvider {
   }
 
   openStreamingSession(opts: StreamingSessionOptions): StreamSession {
-    const { apiKey, model, language, bias, callbacks } = opts;
+    const { apiKey, model, bias, callbacks } = opts;
     const short = stripProviderPrefix(model);
     let partialText = "";
     let configured = false;
@@ -39,7 +39,6 @@ export class OpenAITranscriptionProvider implements TranscriptionProvider {
 
     ws.on("open", () => {
       const transcription: Record<string, unknown> = { model: short };
-      if (language && language !== "auto") transcription.language = language;
       if (bias?.kind === "prompt") transcription.prompt = bias.text;
 
       ws.send(

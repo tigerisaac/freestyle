@@ -1,6 +1,11 @@
 import { upgradeWebSocket } from "@hono/node-server";
 import { Hono } from "hono";
 import { getDb } from "../lib/db.js";
+import { MLX_ASR_PROVIDER_ID } from "../lib/mlx-asr/constants.js";
+import {
+  getLoadedMlxModelId,
+  isMlxServerRunning,
+} from "../lib/mlx-asr/server.js";
 import { postProcess } from "../lib/post-process.js";
 import { capture, captureException } from "../lib/posthog.js";
 import { getDefaultModels } from "../lib/providers.js";
@@ -12,8 +17,6 @@ import {
   supportsStreaming,
 } from "../lib/streaming-stt.js";
 import { resolveAsrVocabularyBias } from "../lib/vocabulary-bias.js";
-
-const LOG_STREAM_PARTIALS = process.env.FREESTYLE_LOG_STREAM_PARTIALS === "1";
 
 const stream = new Hono().get(
   "/",
@@ -27,7 +30,6 @@ const stream = new Hono().get(
     let audioDurationMs = 0;
     /** Audio received while the upstream socket is still connecting. */
     let pendingAudioChunks: ArrayBuffer[] = [];
-    let pendingCommit = false;
     let reconnectAttempts = 0;
     let readyToken = 0;
     let notifiedReadyToken = 0;
@@ -50,10 +52,6 @@ const stream = new Hono().get(
       notifiedReadyToken = token;
       flushPendingAudio();
       ws.send(JSON.stringify({ type: "session.ready", model }));
-      if (pendingCommit) {
-        pendingCommit = false;
-        upstream?.commit();
-      }
     }
 
     function afterSessionReady(
@@ -137,30 +135,27 @@ const stream = new Hono().get(
         true,
       );
 
-      const langSetting = getDb()
-        .prepare("SELECT value FROM settings WHERE key = 'language'")
-        .get() as { value: string } | undefined;
-      const language = langSetting?.value || undefined;
-
       const token = ++readyToken;
+      const isMlxVoice = defaults.voice.provider === MLX_ASR_PROVIDER_ID;
       const session = openStreamingSession({
         providerId: defaults.voice.provider,
         apiKey,
         model: defaults.voice.model_id,
-        language,
         bias,
         callbacks: {
           onReady: (readyModel) => {
             if (upstream !== session) return;
             reconnectAttempts = 0;
-            notifySessionReady(ws, readyModel || modelShort, token);
+            // Cloud providers: onReady means their upstream WS is open (real ready).
+            // MLX: wait for worker load via waitUntilReady / afterSessionReady.
+            if (!isMlxVoice) {
+              notifySessionReady(ws, readyModel || modelShort, readyToken);
+            }
           },
           onPartial: (text) => {
             if (upstream !== session) return;
-            if (LOG_STREAM_PARTIALS) {
-              console.log(
-                `[stream partial] ${defaults.voice!.provider}/${modelShort}: ${text}`,
-              );
+            if (process.env.FREESTYLE_ENV === "development" && text?.trim()) {
+              console.log("[stream] partial:", text);
             }
             ws.send(JSON.stringify({ type: "partial", text }));
           },
@@ -168,12 +163,13 @@ const stream = new Hono().get(
             if (upstream !== session) return;
             const durationMs = Date.now() - sessionStartTime;
 
-            if (!rawText?.trim()) {
+            const trimmed = rawText?.trim() ?? "";
+            if (!trimmed) {
               ws.send(JSON.stringify({ type: "final", text: "" }));
               return;
             }
 
-            postProcess(rawText, appContext)
+            postProcess(trimmed, appContext)
               .then((pp) => {
                 capture("streaming transcription completed", {
                   provider: voiceDefaults!.provider,
@@ -196,8 +192,8 @@ const stream = new Hono().get(
                        (raw_text, cleaned_text, voice_provider, voice_model, llm_provider, llm_model, duration_ms, audio_duration_ms, input_tokens, output_tokens, cost_usd)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                   ).run(
-                    rawText,
-                    pp.cleaned !== rawText ? pp.cleaned : null,
+                    trimmed,
+                    pp.cleaned !== trimmed ? pp.cleaned : null,
                     voiceDefaults!.provider,
                     voiceDefaults!.model_id,
                     pp.llmProvider,
@@ -215,7 +211,7 @@ const stream = new Hono().get(
               .catch((err) => {
                 captureException(err);
                 if (!closed) {
-                  ws.send(JSON.stringify({ type: "final", text: rawText }));
+                  ws.send(JSON.stringify({ type: "final", text: trimmed }));
                 }
                 try {
                   const db = getDb();
@@ -224,7 +220,7 @@ const stream = new Hono().get(
                        (raw_text, voice_provider, voice_model, duration_ms, audio_duration_ms)
                        VALUES (?, ?, ?, ?, ?)`,
                   ).run(
-                    rawText,
+                    trimmed,
                     voiceDefaults!.provider,
                     voiceDefaults!.model_id,
                     durationMs,
@@ -264,20 +260,20 @@ const stream = new Hono().get(
         },
       });
       upstream = session;
-      if (canStream) {
-        afterSessionReady(ws, session, modelShort, token);
+      if (canStream && isMlxVoice) {
+        const mlxWarm =
+          isMlxServerRunning() && getLoadedMlxModelId() === modelShort;
+        if (mlxWarm) {
+          notifySessionReady(ws, modelShort, token);
+        } else {
+          afterSessionReady(ws, session, modelShort, token);
+        }
       }
     }
 
     return {
-      onOpen(_event, ws) {
-        try {
-          connectUpstream(ws);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          ws.send(JSON.stringify({ type: "error", message }));
-          ws.close();
-        }
+      onOpen() {
+        // Upstream connects on `start` — MLX is not loaded until dictate.
       },
 
       onMessage(event, ws) {
@@ -299,10 +295,7 @@ const stream = new Hono().get(
                     (data as Buffer).byteOffset,
                     (data as Buffer).byteOffset + (data as Buffer).byteLength,
                   ) as ArrayBuffer);
-          if (
-            !upstream ||
-            (!upstream.waitUntilReady && notifiedReadyToken !== readyToken)
-          ) {
+          if (!upstream) {
             if (pendingAudioChunks.length < 500) {
               pendingAudioChunks.push(buf);
             }
@@ -336,27 +329,44 @@ const stream = new Hono().get(
             audioDurationMs = 0;
             appContext = msg.context ?? null;
             pendingAudioChunks = [];
-            pendingCommit = false;
             reconnectAttempts = 0;
             if (upstream) {
               if (upstream.reset) {
-                upstream.reset();
-                const voice = voiceDefaults ?? getDefaultModels().voice;
+                const freshDefaults = getDefaultModels();
+                const voice = freshDefaults.voice;
                 if (voice) {
+                  voiceDefaults = voice;
+                }
+                const modelForSession = voice
+                  ? stripProviderPrefix(voice.model_id)
+                  : undefined;
+                upstream.reset(
+                  modelForSession ? { model: modelForSession } : undefined,
+                );
+                if (voice) {
+                  const model = stripProviderPrefix(voice.model_id);
+                  ws.send(
+                    JSON.stringify({
+                      type: "config",
+                      model,
+                      streaming:
+                        !streamingUnsupported &&
+                        supportsStreaming(voice.provider, voice.model_id),
+                    }),
+                  );
                   const token = ++readyToken;
-                  if (upstream.waitUntilReady) {
-                    afterSessionReady(
-                      ws,
-                      upstream,
-                      stripProviderPrefix(voice.model_id),
-                      token,
-                    );
+                  if (voice.provider === MLX_ASR_PROVIDER_ID) {
+                    const mlxWarm =
+                      isMlxServerRunning() && getLoadedMlxModelId() === model;
+                    if (mlxWarm && upstream.waitUntilReady) {
+                      notifySessionReady(ws, model, token);
+                    } else if (upstream.waitUntilReady) {
+                      afterSessionReady(ws, upstream, model, token);
+                    } else {
+                      notifySessionReady(ws, model, token);
+                    }
                   } else {
-                    notifySessionReady(
-                      ws,
-                      stripProviderPrefix(voice.model_id),
-                      token,
-                    );
+                    notifySessionReady(ws, model, token);
                   }
                 }
               } else {
@@ -383,18 +393,9 @@ const stream = new Hono().get(
             if (msg.context !== undefined) {
               appContext = msg.context;
             }
-            if (
-              upstream &&
-              (upstream.waitUntilReady || notifiedReadyToken === readyToken)
-            ) {
-              upstream.commit();
-            } else {
-              pendingCommit = true;
-            }
+            upstream?.commit();
             break;
           case "cancel":
-            pendingCommit = false;
-            pendingAudioChunks = [];
             upstream?.cancel();
             break;
         }
@@ -403,7 +404,6 @@ const stream = new Hono().get(
       onClose() {
         closed = true;
         pendingAudioChunks = [];
-        pendingCommit = false;
         try {
           upstream?.close();
         } catch {}
@@ -413,7 +413,6 @@ const stream = new Hono().get(
       onError() {
         closed = true;
         pendingAudioChunks = [];
-        pendingCommit = false;
         try {
           upstream?.close();
         } catch {}

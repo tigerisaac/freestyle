@@ -69,6 +69,10 @@ export function isMlxServerRunning(): boolean {
   return workerProcess !== null && workerReady;
 }
 
+export function getLoadedMlxModelId(): string | null {
+  return workerReady ? currentModelId : null;
+}
+
 export function isMlxServerFailed(): boolean {
   return workerFailed;
 }

@@ -8,10 +8,15 @@ export interface StreamCallbacks {
   onClose: () => void;
 }
 
+export interface StreamResetOptions {
+  /** Current voice model id (short id, e.g. qwen3-0.6b-5bit). */
+  model?: string;
+}
+
 export interface StreamSession {
   sendAudio(chunk: ArrayBuffer): void;
   /** Clear per-recording transcript state without tearing down the socket. */
-  reset?(): void;
+  reset?(opts?: StreamResetOptions): void;
   /**
    * Resolves when the session can run inference (e.g. MLX worker loaded).
    * Audio may be sent before this completes; providers should buffer it.
@@ -44,8 +49,6 @@ export interface TranscribeResult {
 export interface StreamingSessionOptions {
   apiKey: string;
   model: string;
-  /** ISO-639-1 language hint; omitted or "auto" lets the model auto-detect. */
-  language?: string;
   /** ASR-only vocabulary bias for the first recognition pass. */
   bias?: AsrVocabularyBias | null;
   callbacks: StreamCallbacks;
