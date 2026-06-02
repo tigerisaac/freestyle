@@ -25,6 +25,7 @@ const stream = new Hono().get(
     let audioDurationMs = 0;
     /** Audio received while the upstream socket is still connecting. */
     let pendingAudioChunks: ArrayBuffer[] = [];
+    let pendingCommit = false;
     let reconnectAttempts = 0;
     let readyToken = 0;
     let notifiedReadyToken = 0;
@@ -47,6 +48,10 @@ const stream = new Hono().get(
       notifiedReadyToken = token;
       flushPendingAudio();
       ws.send(JSON.stringify({ type: "session.ready", model }));
+      if (pendingCommit) {
+        pendingCommit = false;
+        upstream?.commit();
+      }
     }
 
     function afterSessionReady(
@@ -281,7 +286,7 @@ const stream = new Hono().get(
                     (data as Buffer).byteOffset,
                     (data as Buffer).byteOffset + (data as Buffer).byteLength,
                   ) as ArrayBuffer);
-          if (!upstream) {
+          if (!upstream || notifiedReadyToken !== readyToken) {
             if (pendingAudioChunks.length < 500) {
               pendingAudioChunks.push(buf);
             }
@@ -315,6 +320,7 @@ const stream = new Hono().get(
             audioDurationMs = 0;
             appContext = msg.context ?? null;
             pendingAudioChunks = [];
+            pendingCommit = false;
             reconnectAttempts = 0;
             if (upstream) {
               if (upstream.reset) {
@@ -353,9 +359,15 @@ const stream = new Hono().get(
             if (msg.context !== undefined) {
               appContext = msg.context;
             }
-            upstream?.commit();
+            if (upstream && notifiedReadyToken === readyToken) {
+              upstream.commit();
+            } else {
+              pendingCommit = true;
+            }
             break;
           case "cancel":
+            pendingCommit = false;
+            pendingAudioChunks = [];
             upstream?.cancel();
             break;
         }
@@ -364,6 +376,7 @@ const stream = new Hono().get(
       onClose() {
         closed = true;
         pendingAudioChunks = [];
+        pendingCommit = false;
         try {
           upstream?.close();
         } catch {}
@@ -373,6 +386,7 @@ const stream = new Hono().get(
       onError() {
         closed = true;
         pendingAudioChunks = [];
+        pendingCommit = false;
         try {
           upstream?.close();
         } catch {}
