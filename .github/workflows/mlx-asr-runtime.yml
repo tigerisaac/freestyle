@@ -2,17 +2,19 @@
 #
 # This is intentionally separate from the app release. The worker is large, so
 # Freestyle downloads it on demand instead of bundling it into every DMG.
+# GitHub immutable releases require the asset to be attached when the release is
+# created, so keep the create command and asset path in the same step.
 
 name: MLX ASR Runtime
 
 on:
   workflow_dispatch:
     inputs:
-      publish:
-        description: Upload the runtime archive to the mlx-asr-worker-v1 release
+      release_tag:
+        description: Runtime release tag to create
         required: true
-        type: boolean
-        default: false
+        type: string
+        default: mlx-asr-worker-v1
 
 permissions:
   contents: write
@@ -22,9 +24,9 @@ jobs:
     name: Build runtime archive
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -32,24 +34,23 @@ jobs:
         run: ./scripts/build_mlx_asr_worker.sh
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mlx-asr-worker-darwin-arm64
           path: dist/mlx_asr_worker-darwin-arm64.tar.gz
           if-no-files-found: error
 
-      - name: Publish fixed runtime release asset
-        if: inputs.publish
+      - name: Publish runtime release asset
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          ASSET: dist/mlx_asr_worker-darwin-arm64.tar.gz
         run: |
-          tag="mlx-asr-worker-v1"
-          asset="dist/mlx_asr_worker-darwin-arm64.tar.gz"
-
-          if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" \
-              --title "MLX ASR Worker v1" \
-              --notes "Optional Freestyle runtime for local Qwen3 ASR."
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::Release $RELEASE_TAG already exists. Use a new runtime tag and update DEFAULT_MLX_WORKER_URL."
+            exit 1
           fi
 
-          gh release upload "$tag" "$asset" --clobber
+          gh release create "$RELEASE_TAG" "$ASSET" \
+            --title "MLX ASR Worker ${RELEASE_TAG#mlx-asr-worker-}" \
+            --notes "Optional Freestyle runtime for local Qwen3 ASR."
