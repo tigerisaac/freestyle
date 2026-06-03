@@ -333,16 +333,14 @@ function showPill(): void {
     mainWindow.showInactive();
   }
 
-  // On Windows, register Escape as a global shortcut while the pill
-  // is visible so the user can cancel recording/transcription.
-  if (process.platform === "win32") {
-    if (!globalShortcut.isRegistered("Escape")) {
-      globalShortcut.register("Escape", () => {
-        if (mainWindow?.isVisible()) {
-          mainWindow.webContents.send("pill:cancel");
-        }
-      });
-    }
+  // Register Escape as a global shortcut while the pill is visible
+  // so the user can cancel recording/transcription.
+  if (!globalShortcut.isRegistered("Escape")) {
+    globalShortcut.register("Escape", () => {
+      if (mainWindow?.isVisible()) {
+        mainWindow.webContents.send("pill:cancel");
+      }
+    });
   }
 }
 
@@ -515,12 +513,10 @@ function hidePill(): void {
   if (mainWindow?.isVisible()) {
     mainWindow.hide();
   }
-  // Unregister Escape shortcut when pill is hidden (Windows only)
-  if (process.platform === "win32") {
-    try {
-      globalShortcut.unregister("Escape");
-    } catch {}
-  }
+  // Unregister Escape shortcut when pill is hidden
+  try {
+    globalShortcut.unregister("Escape");
+  } catch {}
 }
 
 function resetOnboarding(): void {
@@ -875,9 +871,7 @@ app.whenReady().then(async () => {
       keyListener.stop();
       keyListener = null;
     }
-    if (process.platform === "win32") {
-      globalShortcut.unregisterAll();
-    }
+    globalShortcut.unregisterAll();
 
     stopHotkeyRecorderProcess();
     const target =
@@ -1325,9 +1319,7 @@ function registerHotkey(hotkey?: string): void {
     keyListener = null;
   }
   hotkeyPressed = false;
-  if (process.platform === "win32") {
-    globalShortcut.unregisterAll();
-  }
+  globalShortcut.unregisterAll();
 
   if (!hotkey) {
     hotkey = loadHotkeyFromDB();
@@ -1393,9 +1385,7 @@ app.on("will-quit", () => {
     micListener.stop();
     micListener = null;
   }
-  if (process.platform === "win32") {
-    globalShortcut.unregisterAll();
-  }
+  globalShortcut.unregisterAll();
 });
 
 // Keep app running in background when windows are closed (tray stays active)
