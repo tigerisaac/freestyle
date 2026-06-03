@@ -183,6 +183,22 @@ describe("MLX runtime versioning", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("does not prefetch or activate the runtime until an MLX model is downloaded", async () => {
+    process.env.FREESTYLE_MLX_ASR_RELEASE_TAG = "0.9.0";
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const runtime = await importRuntime();
+
+    await expect(
+      runtime.prefetchManagedMlxRuntimeForAppRelease("0.9.1"),
+    ).resolves.toBe(false);
+    await expect(
+      runtime.activateManagedMlxRuntimeForAppVersion("0.9.1"),
+    ).resolves.toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("returns a helpful error when the app release is missing the worker asset", async () => {
     process.env.FREESTYLE_MLX_ASR_RELEASE_TAG = "0.9.1";
     const fetchSpy = vi.fn().mockResolvedValue({

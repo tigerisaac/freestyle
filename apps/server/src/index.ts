@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { reconcileUnsupportedMlxVoiceDefault } from "./lib/mlx-asr/reconcile.js";
-import { updateManagedMlxRuntimeIfNeeded } from "./lib/mlx-asr/runtime.js";
+import {
+  activateManagedMlxRuntimeForAppVersion,
+  prefetchManagedMlxRuntimeForAppRelease,
+} from "./lib/mlx-asr/runtime.js";
 import {
   capture,
   captureException,
@@ -80,10 +83,11 @@ const app = new Hono()
 
 export { closeDb } from "./lib/db.js";
 export {
+  activateManagedMlxRuntimeForAppVersion,
   autoStartMlxAsrServer,
   autoStartWhisperServer,
+  prefetchManagedMlxRuntimeForAppRelease,
   reconcileUnsupportedMlxVoiceDefault,
-  updateManagedMlxRuntimeIfNeeded,
 };
 
 export type AppType = typeof app;

@@ -45,10 +45,11 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import server, {
+  activateManagedMlxRuntimeForAppVersion,
   autoStartWhisperServer,
   closeDb,
+  prefetchManagedMlxRuntimeForAppRelease,
   reconcileUnsupportedMlxVoiceDefault,
-  updateManagedMlxRuntimeIfNeeded,
 } from "@freestyle/server";
 import { createAppLogger } from "@freestyle/utils";
 import { serve } from "@hono/node-server";
@@ -1068,12 +1069,17 @@ app.whenReady().then(async () => {
     startServer(DEFAULT_PORT);
   }
 
-  void updateManagedMlxRuntimeIfNeeded().catch((err) => {
-    console.warn(
-      "[mlx-asr] Failed to auto-update managed runtime:",
-      err instanceof Error ? err.message : String(err),
+  if (!is.dev) {
+    void activateManagedMlxRuntimeForAppVersion(app.getVersion()).catch(
+      (err) => {
+        log.warn(
+          `Failed to activate MLX runtime for app ${app.getVersion()}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      },
     );
-  });
+  }
 
   createTray();
 
@@ -1156,6 +1162,13 @@ app.whenReady().then(async () => {
         updateCheckTimer = null;
       }
       rebuildMenus();
+      void prefetchManagedMlxRuntimeForAppRelease(info.version).catch((err) => {
+        log.warn(
+          `Failed to stage MLX runtime for ${info.version}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
     });
 
     autoUpdater.on("error", (err) => {
