@@ -14,6 +14,7 @@ import {
   getMlxAsrWorkerPath,
   isMlxAudioInstalled,
 } from "./python.js";
+import { updateManagedMlxRuntimeIfNeeded } from "./runtime.js";
 
 const log = createAppLogger("mlx-asr");
 const START_TIMEOUT_MS = 120_000;
@@ -328,6 +329,14 @@ async function startWorker(modelId: string): Promise<void> {
   if (!def) {
     throw new Error(`Unknown MLX ASR model: ${modelId}`);
   }
+
+  await updateManagedMlxRuntimeIfNeeded().catch((err) => {
+    log.warn(
+      `Failed to refresh managed runtime before worker start: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  });
 
   const candidates = workerLaunchCandidates(def.hfId);
   if (candidates.length === 0) {

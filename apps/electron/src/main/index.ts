@@ -48,6 +48,7 @@ import server, {
   autoStartWhisperServer,
   closeDb,
   reconcileUnsupportedMlxVoiceDefault,
+  updateManagedMlxRuntimeIfNeeded,
 } from "@freestyle/server";
 import { createAppLogger } from "@freestyle/utils";
 import { serve } from "@hono/node-server";
@@ -1015,6 +1016,9 @@ app.whenReady().then(async () => {
   process.env.FREESTYLE_DB_PATH = join(app.getPath("userData"), "freestyle.db");
 
   process.env.FREESTYLE_ENV = is.dev ? "development" : "production";
+  if (!is.dev) {
+    process.env.FREESTYLE_MLX_ASR_RELEASE_TAG ||= app.getVersion();
+  }
 
   // Run non-critical server startup tasks now that the DB path is set
   reconcileUnsupportedMlxVoiceDefault();
@@ -1063,6 +1067,13 @@ app.whenReady().then(async () => {
   } else {
     startServer(DEFAULT_PORT);
   }
+
+  void updateManagedMlxRuntimeIfNeeded().catch((err) => {
+    console.warn(
+      "[mlx-asr] Failed to auto-update managed runtime:",
+      err instanceof Error ? err.message : String(err),
+    );
+  });
 
   createTray();
 
