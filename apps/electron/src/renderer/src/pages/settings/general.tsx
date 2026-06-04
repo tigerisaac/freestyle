@@ -39,6 +39,10 @@ interface AudioDevice {
   label: string;
 }
 
+function normalizePillPos(pos: string): string {
+  return pos.startsWith("custom") ? "custom" : pos;
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -52,7 +56,6 @@ export default function GeneralSettingsPage(): React.JSX.Element {
   const [language, setLanguage] = useState("auto");
   const [outputMode, setOutputMode] = useState("paste");
   const [pillPosition, setPillPosition] = useState("bottom-center");
-  const [hasCustom, setHasCustom] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [transcriptionPrompt, setTranscriptionPrompt] = useState("");
   const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
@@ -229,17 +232,7 @@ export default function GeneralSettingsPage(): React.JSX.Element {
       .catch(() => {});
     window.api
       ?.getPillPosition()
-      .then((pos) => {
-        // The main process may return "custom-top" or "custom-bottom" to convey
-        // the display-relative alignment; normalise back to "custom" for the UI.
-        const norm = pos.startsWith("custom") ? "custom" : pos;
-        setPillPosition(norm);
-        if (norm === "custom") setHasCustom(true);
-      })
-      .catch(() => {});
-    window.api
-      ?.hasCustomPosition()
-      .then(setHasCustom)
+      .then((pos) => setPillPosition(normalizePillPos(pos)))
       .catch(() => {});
     getClient()
       .api.settings[":key"].$get({ param: { key: "sound_enabled" } })
@@ -306,10 +299,7 @@ export default function GeneralSettingsPage(): React.JSX.Element {
 
     // Pill position live changes
     const removePillPos = window.api?.onPillPositionChanged((pos) => {
-      // Normalise custom-top / custom-bottom to "custom" for the dropdown.
-      const norm = pos.startsWith("custom") ? "custom" : pos;
-      setPillPosition(norm);
-      if (norm === "custom") setHasCustom(true);
+      setPillPosition(normalizePillPos(pos));
     });
 
     checkPermissions();
@@ -417,8 +407,6 @@ export default function GeneralSettingsPage(): React.JSX.Element {
       ? "Release to save · Esc to cancel"
       : "Press a modifier or side mouse button... · Esc to cancel";
 
-  // Build position options once; include "Custom" only if the user has ever
-  // dragged the pill to a custom location.
   const positionOptions = useMemo<SegmentOption[]>(() => {
     const opts: SegmentOption[] = [
       { id: "bottom-center", label: "Bottom · Center" },
@@ -426,9 +414,9 @@ export default function GeneralSettingsPage(): React.JSX.Element {
       { id: "top-center", label: "Top · Center" },
       { id: "top-right", label: "Top · Right" },
     ];
-    if (hasCustom) opts.push({ id: "custom", label: "Custom" });
+    if (pillPosition === "custom") opts.push({ id: "custom", label: "Custom" });
     return opts;
-  }, [hasCustom]);
+  }, [pillPosition]);
 
   return (
     <div
