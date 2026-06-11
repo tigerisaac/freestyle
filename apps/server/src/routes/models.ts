@@ -142,6 +142,14 @@ const BUILTIN_VOICE_MODELS: AvailableModel[] = [
     family: "elevenlabs",
     type: "voice",
   },
+  {
+    provider_id: "soniox",
+    provider_name: "Soniox",
+    model_id: "soniox/stt-rt-v4",
+    model_name: "Soniox Realtime v4",
+    family: "soniox",
+    type: "voice",
+  },
 ];
 
 // Cleanup-LLM providers the app can actually run (see lib/providers.ts).
@@ -156,6 +164,7 @@ const SUPPORTED_LLM_PROVIDERS = new Set([
 // One fast-tier cleanup model per provider, surfaced by default; everything
 // else from the registry sits behind the picker's "All models" expander.
 const CURATED_LLM_IDS = new Set([
+  "groq/llama-3.1-8b-instant",
   "groq/llama-3.3-70b-versatile",
   "openai/gpt-4o-mini",
   "anthropic/claude-haiku-4-5",

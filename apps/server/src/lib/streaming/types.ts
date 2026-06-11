@@ -26,6 +26,7 @@ export interface TranscribeOptions {
   audio: Uint8Array;
   model: string;
   apiKey: string;
+  /** ISO-639-1 language hint; omitted lets the model auto-detect. */
   language?: string;
   /** ASR-only vocabulary bias for the first recognition pass. */
   bias?: AsrVocabularyBias | null;
@@ -44,7 +45,7 @@ export interface TranscribeResult {
 export interface StreamingSessionOptions {
   apiKey: string;
   model: string;
-  /** ISO-639-1 language hint; omitted or "auto" lets the model auto-detect. */
+  /** ISO-639-1 language hint; omitted lets the model auto-detect. */
   language?: string;
   /** ASR-only vocabulary bias for the first recognition pass. */
   bias?: AsrVocabularyBias | null;

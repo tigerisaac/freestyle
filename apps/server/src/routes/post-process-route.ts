@@ -10,7 +10,9 @@ const postProcessRoute = new Hono().post("/", async (c) => {
 
   const appContext: string | null = body.appContext ?? null;
 
-  const pp = await postProcess(body.text, appContext, "multi_segment");
+  const pp = await postProcess(body.text, appContext, {
+    source: "multi_segment",
+  });
 
   return c.json({
     cleaned: pp.cleaned,

@@ -69,11 +69,6 @@ const transcribeRoute = new Hono().post("/", async (c) => {
   const db = getDb();
   let rawText: string;
 
-  const langSetting = db
-    .prepare("SELECT value FROM settings WHERE key = 'language'")
-    .get() as { value: string } | undefined;
-  const language = langSetting?.value || undefined;
-
   const provider = getProvider(defaults.voice.provider);
   if (!provider) {
     return c.json(
@@ -99,6 +94,10 @@ const transcribeRoute = new Hono().post("/", async (c) => {
       defaults.voice.provider,
       defaults.voice.model_id,
     );
+    const langSetting = db
+      .prepare("SELECT value FROM settings WHERE key = 'language'")
+      .get() as { value: string } | undefined;
+    const language = langSetting?.value || undefined;
     log.debug(`bias=${JSON.stringify(bias)}`);
     const t0 = Date.now();
     const result = await provider.transcribe({
@@ -174,7 +173,7 @@ const transcribeRoute = new Hono().post("/", async (c) => {
   }
 
   const ppStart = Date.now();
-  const pp = await postProcess(rawText, appContext, "batch");
+  const pp = await postProcess(rawText, appContext, { source: "batch" });
   log.debug(
     `post-process took ${Date.now() - ppStart}ms | cleaned=${JSON.stringify(pp.cleaned).slice(0, 120)}`,
   );
