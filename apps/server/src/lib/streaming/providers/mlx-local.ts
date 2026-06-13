@@ -53,12 +53,16 @@ export class MlxLocalTranscriptionProvider implements TranscriptionProvider {
   }
 
   supportsStreaming(_modelId: string): boolean {
+    return false;
+  }
+
+  supportsSessionTransport(_modelId: string): boolean {
     return true;
   }
 
   openStreamingSession(opts: StreamingSessionOptions): StreamSession {
     const modelId = stripProviderPrefix(opts.model);
-    return new MlxLocalStreamingSession({
+    return new MlxLocalSessionTransport({
       modelId,
       language: resolveMlxLanguage(modelId, opts.language),
       context: opts.bias?.kind === "prompt" ? opts.bias.text : undefined,
@@ -67,7 +71,7 @@ export class MlxLocalTranscriptionProvider implements TranscriptionProvider {
   }
 }
 
-class MlxLocalStreamingSession implements StreamSession {
+class MlxLocalSessionTransport implements StreamSession {
   private chunks: Buffer[] = [];
   private sampleCount = 0;
   private closed = false;
@@ -130,7 +134,7 @@ class MlxLocalStreamingSession implements StreamSession {
     applyMlxAsrRetentionPolicy();
   }
 
-  /** Begin loading the MLX worker while audio is captured in parallel. */
+  /** Batch-only session transport: load the MLX worker while audio is captured. */
   private startWorkerLoad(): void {
     if (getMlxModelStatus(this.opts.modelId)?.status !== "ready") {
       this.workerReadyPromise = Promise.reject(
