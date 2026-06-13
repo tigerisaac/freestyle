@@ -5,7 +5,7 @@ import { getModelCost, isCleanupModelSupported } from "../routes/models.js";
 import { getDb } from "./db.js";
 import { applyDictionaryReplacements } from "./dictionary-replacements.js";
 import { maxOutputTokensForCleanup } from "./editor/max-output-tokens.js";
-import { cleanModelOutput } from "./editor/model-hints.js";
+import { sanitizeTranscriptText } from "./editor/model-hints.js";
 import { buildRewritePrompt } from "./editor/prompts.js";
 import { getRewritePromptContext } from "./editor/rewrite-context.js";
 import {
@@ -106,6 +106,7 @@ export async function postProcess(
   appContext: string | null,
   options: PostProcessOptions = {},
 ): Promise<PostProcessResult> {
+  const normalizedRawText = sanitizeTranscriptText(rawText);
   const source = options.source ?? "batch";
   const ppStart = Date.now();
   const db = getDb();
@@ -116,7 +117,7 @@ export async function postProcess(
   let llmModel: string | null = null;
   let costUsd = 0;
 
-  const stripped = rawText
+  const stripped = normalizedRawText
     .replace(/\b(um+|uh+|ah+|er+|hm+|hmm+|mm+|mhm+|you know|i mean)\b/gi, "")
     .replace(/[.…,!?\-–—\s]+/g, "");
   if (!stripped) {
@@ -130,7 +131,7 @@ export async function postProcess(
     };
   }
 
-  let cleanedText = rawText;
+  let cleanedText = normalizedRawText;
   const handoffStart = Date.now();
   const llm = defaults.llm;
   const llmStart = Date.now();
@@ -143,7 +144,7 @@ export async function postProcess(
       );
     } else {
       const rewriteContext = getRewritePromptContext(appContext, db);
-      const { system, prompt } = buildRewritePrompt(rawText, {
+      const { system, prompt } = buildRewritePrompt(normalizedRawText, {
         contextHint: rewriteContext.contextHint || undefined,
         language: options.language,
         registerMode: rewriteContext.registerMode,
@@ -158,7 +159,7 @@ export async function postProcess(
           system,
           prompt,
           temperature: 0,
-          maxOutputTokens: maxOutputTokensForCleanup(rawText),
+          maxOutputTokens: maxOutputTokensForCleanup(normalizedRawText),
           ...(llm.provider === "groq"
             ? {
                 providerOptions: groqCleanupProviderOptions(llm.model_id),
@@ -169,7 +170,7 @@ export async function postProcess(
         outputTokens = result.usage?.outputTokens ?? 0;
         llmProvider = llm.provider;
         llmModel = llm.model_id;
-        cleanedText = cleanModelOutput(result.text, llm.model_id);
+        cleanedText = sanitizeTranscriptText(result.text);
       } catch (err) {
         captureException(err);
         capture("post process failed", {
@@ -178,7 +179,7 @@ export async function postProcess(
           source,
         });
         log.error(`LLM cleanup failed: ${err}`);
-        cleanedText = rawText;
+        cleanedText = normalizedRawText;
       }
     }
   }

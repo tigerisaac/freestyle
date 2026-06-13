@@ -1,6 +1,7 @@
 import { createAppLogger } from "@freestyle/utils";
 import { Hono } from "hono";
 import { getDb } from "../lib/db.js";
+import { sanitizeTranscriptText } from "../lib/editor/model-hints.js";
 import { getLanguageSetting } from "../lib/language.js";
 import { postProcess } from "../lib/post-process.js";
 import { capture, captureException } from "../lib/posthog.js";
@@ -105,7 +106,7 @@ const transcribeRoute = new Hono().post("/", async (c) => {
       ...(language ? { language } : {}),
       bias,
     });
-    rawText = result.text;
+    rawText = sanitizeTranscriptText(result.text);
     log.debug(
       `STT took ${Date.now() - t0}ms | rawText=${JSON.stringify(rawText).slice(0, 120)}`,
     );

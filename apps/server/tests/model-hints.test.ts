@@ -1,26 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
-  cleanModelOutput,
+  sanitizeTranscriptText,
   stripTrailingDuplicate,
 } from "../src/lib/editor/model-hints.js";
 
-describe("cleanModelOutput", () => {
-  it("strips trailing <fin> tags from gpt-oss output", () => {
-    expect(
-      cleanModelOutput(
-        "Let's just do a remote Zoom call instead.<fin>",
-        "openai/gpt-oss-20b",
-      ),
-    ).toBe("Let's just do a remote Zoom call instead.");
+describe("sanitizeTranscriptText", () => {
+  it("strips trailing <fin> tags from raw transcripts", () => {
+    expect(sanitizeTranscriptText("Hello there.<fin>")).toBe("Hello there.");
   });
 
-  it("strips qwen think tags and trailing <fin>", () => {
+  it("strips wrapping quotes around raw transcripts", () => {
+    expect(sanitizeTranscriptText('"Quoted transcript.<fin>"')).toBe(
+      "Quoted transcript.",
+    );
+  });
+
+  it("strips trailing <fin> tags from gpt-oss output", () => {
     expect(
-      cleanModelOutput(
-        "<think>hidden reasoning</think>\n最终我们远程开 Zoom 会议。<fin>",
-        "qwen/qwen3-32b",
-      ),
-    ).toBe("最终我们远程开 Zoom 会议。");
+      sanitizeTranscriptText("Let's just do a remote Zoom call instead.<fin>"),
+    ).toBe("Let's just do a remote Zoom call instead.");
   });
 });
 

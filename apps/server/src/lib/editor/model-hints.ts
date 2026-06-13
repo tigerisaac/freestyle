@@ -31,17 +31,8 @@ function stripTrailingFinTags(text: string): string {
   return text.replace(/(?:\s*<\/?fin>\s*)+$/gi, "").trim();
 }
 
-/** Strip Qwen thinking tags and other common local-model artifacts. */
-export function cleanModelOutput(text: string, modelId: string): string {
+export function sanitizeTranscriptText(text: string): string {
   let cleaned = stripWrappingQuotes(text);
-  if (/qwen/i.test(modelId)) {
-    cleaned = cleaned
-      .replace(/^<think>[\s\S]*?<\/think>\s*/i, "")
-      .replace(/^[\s\S]*?<\/think>\s*/i, "")
-      .trim();
-  }
-
   cleaned = stripTrailingFinTags(cleaned);
-
   return stripTrailingDuplicate(cleaned);
 }

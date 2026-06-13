@@ -1,6 +1,6 @@
 import { generateText } from "ai";
 import { maxOutputTokensForCleanup } from "../src/lib/editor/max-output-tokens.ts";
-import { cleanModelOutput } from "../src/lib/editor/model-hints.ts";
+import { sanitizeTranscriptText } from "../src/lib/editor/model-hints.ts";
 import { buildRewritePrompt } from "../src/lib/editor/prompts.ts";
 import {
   getGroqChatModel,
@@ -192,7 +192,7 @@ async function runCase(
     providerOptions: groqCleanupProviderOptions(modelId),
   });
 
-  const actual = cleanModelOutput(result.text, normalizeGroqModelId(modelId));
+  const actual = sanitizeTranscriptText(result.text);
   return {
     actual,
     ok: normalizeForCompare(actual) === normalizeForCompare(testCase.expected),
