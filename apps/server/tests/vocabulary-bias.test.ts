@@ -279,6 +279,19 @@ describe("buildAsrVocabularyBias", () => {
     });
   });
 
+  describe("local-crispasr", () => {
+    it("builds the same prompt-style bias as local mlx", () => {
+      const bias = buildAsrVocabularyBias("local-crispasr", "qwen", [
+        "TypeScript",
+        "Kubernetes",
+      ]);
+      expect(bias).toEqual({
+        kind: "prompt",
+        text: "Technical terms: TypeScript, Kubernetes",
+      });
+    });
+  });
+
   describe("soniox", () => {
     it("maps vocabulary terms to soniox-context", () => {
       const bias = buildAsrVocabularyBias(

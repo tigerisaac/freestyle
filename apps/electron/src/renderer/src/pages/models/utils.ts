@@ -1,6 +1,7 @@
 import {
   type AvailableModel,
   buildVoiceItems,
+  type CrispAsrStatus,
   displayProviderName,
   LLM_PROVIDERS,
   type MlxAsrStatus,
@@ -40,6 +41,7 @@ export function groupByProvider(
     if (type === "llm" && m.provider_id === "local-llm") continue;
     if (type === "voice" && m.provider_id === "local-whisper") continue;
     if (type === "voice" && m.provider_id === "local-mlx") continue;
+    if (type === "voice" && m.provider_id === "local-crispasr") continue;
     let entry = map.get(m.provider_id);
     if (!entry) {
       entry = {
@@ -58,12 +60,13 @@ export function buildSettingsVoiceItems(
   available: AvailableModel[],
   whisperStatus: WhisperStatus | null,
   mlxStatus: MlxAsrStatus | null,
+  crispStatus: CrispAsrStatus | null,
   ctx: {
     defaultVoice: ConfiguredModel | undefined;
     keyProviders: Set<string>;
   },
 ): VoiceItem[] {
-  return buildVoiceItems(available, whisperStatus, mlxStatus, {
+  return buildVoiceItems(available, whisperStatus, mlxStatus, crispStatus, {
     selectedModelId: ctx.defaultVoice?.model_id,
     selectedProvider: ctx.defaultVoice?.provider,
     keyProviders: ctx.keyProviders,

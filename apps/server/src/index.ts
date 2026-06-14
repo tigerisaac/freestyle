@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { reconcileUnsupportedMlxVoiceDefault } from "./lib/mlx-asr/reconcile.js";
+import { reconcileUnsupportedLocalVoiceDefault } from "./lib/mlx-asr/reconcile.js";
 import {
   activateManagedMlxRuntimeForAppVersion,
   prefetchManagedMlxRuntimeForAppRelease,
@@ -12,6 +12,7 @@ import {
   shutdownPosthog,
 } from "./lib/posthog.js";
 import apiKeys from "./routes/api-keys.js";
+import crispAsr, { autoStartCrispAsrServer } from "./routes/crisp-asr.js";
 import dictionary from "./routes/dictionary.js";
 import formats from "./routes/formats.js";
 import history from "./routes/history.js";
@@ -78,18 +79,21 @@ const app = new Hono()
   .route("/api/post-process", postProcessRoute)
   .route("/api/whisper", whisper)
   .route("/api/mlx-asr", mlxAsr)
+  .route("/api/crisp-asr", crispAsr)
   .route("/mcp", mcp)
   .route("/stream", stream);
 
+export { stopCrispAsrServer } from "./lib/crisp-asr/server.js";
 export { closeDb } from "./lib/db.js";
 export { stopMlxServer } from "./lib/mlx-asr/server.js";
 export { stopServer as stopWhisperServer } from "./lib/whisper/server.js";
 export {
   activateManagedMlxRuntimeForAppVersion,
+  autoStartCrispAsrServer,
   autoStartMlxAsrServer,
   autoStartWhisperServer,
   prefetchManagedMlxRuntimeForAppRelease,
-  reconcileUnsupportedMlxVoiceDefault,
+  reconcileUnsupportedLocalVoiceDefault,
 };
 
 export type AppType = typeof app;

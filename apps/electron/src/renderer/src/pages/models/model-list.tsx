@@ -57,7 +57,9 @@ interface Row {
 function recommendedVoiceKey(items: VoiceItem[]): string {
   return items.some((it) => it.localEngine === "mlx")
     ? "local-mlx/qwen3-0.6b-8bit"
-    : "local-whisper/small-q5_1";
+    : items.some((it) => it.localEngine === "crisp")
+      ? "local-crispasr/qwen3-0.6b-8bit"
+      : "local-whisper/small-q5_1";
 }
 
 interface VoiceHandlers {
@@ -65,9 +67,12 @@ interface VoiceHandlers {
   onPickLocalVoice: (
     defId: string,
     name: string,
-    engine?: "whisper" | "mlx",
+    engine?: "whisper" | "mlx" | "crisp",
   ) => void;
-  onRequestDeleteLocal: (defId: string, engine?: "whisper" | "mlx") => void;
+  onRequestDeleteLocal: (
+    defId: string,
+    engine?: "whisper" | "mlx" | "crisp",
+  ) => void;
 }
 
 function buildVoiceRows(m: UseModels, h: VoiceHandlers): Row[] {
@@ -106,7 +111,7 @@ function buildVoiceRows(m: UseModels, h: VoiceHandlers): Row[] {
           ? () =>
               it.localEngine === "mlx"
                 ? void m.retryLocalMlx(defId)
-                : m.downloadLocal(defId, "whisper")
+                : m.downloadLocal(defId, it.localEngine)
           : undefined,
       };
     }
@@ -196,9 +201,12 @@ export function ModelList({
   onPickLocalVoice: (
     defId: string,
     name: string,
-    engine?: "whisper" | "mlx",
+    engine?: "whisper" | "mlx" | "crisp",
   ) => void;
-  onRequestDeleteLocal: (defId: string, engine?: "whisper" | "mlx") => void;
+  onRequestDeleteLocal: (
+    defId: string,
+    engine?: "whisper" | "mlx" | "crisp",
+  ) => void;
 }): React.JSX.Element {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -364,7 +372,7 @@ function VoiceTiers({
   onPickLocalVoice: (
     defId: string,
     name: string,
-    engine?: "whisper" | "mlx",
+    engine?: "whisper" | "mlx" | "crisp",
   ) => void;
   onShowAll: () => void;
 }): React.JSX.Element {

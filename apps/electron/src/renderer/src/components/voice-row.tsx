@@ -93,12 +93,12 @@ export function VoiceRow({
   onSelectLocal: (
     defId: string,
     name: string,
-    engine?: "whisper" | "mlx",
+    engine?: "whisper" | "mlx" | "crisp",
   ) => void;
-  onDownload: (defId: string, engine?: "whisper" | "mlx") => void;
-  onRetryLocal?: (defId: string, engine: "whisper" | "mlx") => void;
-  onCancel?: (defId: string, engine?: "whisper" | "mlx") => void;
-  onDelete?: (defId: string, engine?: "whisper" | "mlx") => void;
+  onDownload: (defId: string, engine?: "whisper" | "mlx" | "crisp") => void;
+  onRetryLocal?: (defId: string, engine: "whisper" | "mlx" | "crisp") => void;
+  onCancel?: (defId: string, engine?: "whisper" | "mlx" | "crisp") => void;
+  onDelete?: (defId: string, engine?: "whisper" | "mlx" | "crisp") => void;
 }): React.JSX.Element {
   const local = item.kind === "local";
   const status = item.status ?? "not_downloaded";
@@ -231,7 +231,12 @@ export function VoiceRow({
               {item.state?.phase === "building_binary" && hasProgress ? (
                 <>
                   <span>
-                    MLX runtime ·{" "}
+                    {item.localEngine === "mlx"
+                      ? "MLX runtime"
+                      : item.localEngine === "crisp"
+                        ? "CrispASR runtime"
+                        : "Runtime"}{" "}
+                    ·{" "}
                     {formatBytes(item.state.downloadProgress!.bytesDownloaded)}{" "}
                     / {formatBytes(item.state.downloadProgress!.bytesTotal)}
                   </span>
@@ -246,7 +251,9 @@ export function VoiceRow({
                 <span>
                   {item.localEngine === "mlx"
                     ? "Downloading MLX runtime..."
-                    : "Building whisper.cpp, this may take a minute..."}
+                    : item.localEngine === "crisp"
+                      ? "Downloading CrispASR runtime..."
+                      : "Building whisper.cpp, this may take a minute..."}
                 </span>
               ) : item.state?.downloadProgress ? (
                 <>
@@ -263,7 +270,7 @@ export function VoiceRow({
                 </>
               ) : (
                 <span>
-                  {item.localEngine === "mlx"
+                  {item.localEngine === "mlx" || item.localEngine === "crisp"
                     ? "Downloading model weights..."
                     : "Verifying..."}
                 </span>
@@ -343,8 +350,10 @@ export function VoiceRow({
                   if (!item.defId) return;
                   if (item.localEngine === "mlx" && onRetryLocal) {
                     onRetryLocal(item.defId, "mlx");
+                  } else if (item.localEngine === "crisp" && onRetryLocal) {
+                    onRetryLocal(item.defId, "crisp");
                   } else {
-                    onDownload(item.defId);
+                    onDownload(item.defId, item.localEngine);
                   }
                 }}
                 className={ghostBtn}

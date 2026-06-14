@@ -1,3 +1,4 @@
+import { CRISP_ASR_PROVIDER_ID } from "./crisp-asr/constants.js";
 import { getDb } from "./db.js";
 import { MLX_ASR_PROVIDER_ID } from "./mlx-asr/constants.js";
 import { getProvider, supportsSessionTransport } from "./streaming/registry.js";
@@ -11,7 +12,11 @@ export {
 } from "./streaming/registry.js";
 export type { StreamCallbacks, StreamSession } from "./streaming/types.js";
 
-const LOCAL_STT_PROVIDERS = new Set([WHISPER_PROVIDER_ID, MLX_ASR_PROVIDER_ID]);
+const LOCAL_STT_PROVIDERS = new Set([
+  WHISPER_PROVIDER_ID,
+  MLX_ASR_PROVIDER_ID,
+  CRISP_ASR_PROVIDER_ID,
+]);
 
 export function openStreamingSession(opts: {
   providerId: string;

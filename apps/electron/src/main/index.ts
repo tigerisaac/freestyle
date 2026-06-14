@@ -46,10 +46,13 @@ import { pathToFileURL } from "node:url";
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import server, {
   activateManagedMlxRuntimeForAppVersion,
+  autoStartCrispAsrServer,
+  autoStartMlxAsrServer,
   autoStartWhisperServer,
   closeDb,
   prefetchManagedMlxRuntimeForAppRelease,
-  reconcileUnsupportedMlxVoiceDefault,
+  reconcileUnsupportedLocalVoiceDefault,
+  stopCrispAsrServer,
   stopMlxServer,
   stopWhisperServer,
 } from "@freestyle/server";
@@ -751,6 +754,7 @@ async function factoryReset(): Promise<void> {
   if (response !== 1) return;
 
   try {
+    await stopCrispAsrServer().catch(() => {});
     await stopWhisperServer().catch(() => {});
     await stopMlxServer().catch(() => {});
 
@@ -1279,7 +1283,9 @@ app.whenReady().then(async () => {
   }
 
   // Run non-critical server startup tasks now that the DB path is set
-  reconcileUnsupportedMlxVoiceDefault();
+  reconcileUnsupportedLocalVoiceDefault();
+  autoStartCrispAsrServer();
+  autoStartMlxAsrServer();
   autoStartWhisperServer();
 
   // Start the Hono HTTP server with WebSocket support (or reuse an existing one)
@@ -1965,6 +1971,7 @@ let isQuitting = false;
 let updateDownloadState: "idle" | "downloading" | "downloaded" = "idle";
 
 function cleanupBeforeQuit(): void {
+  stopCrispAsrServer().catch(() => {});
   stopWhisperServer().catch(() => {});
   stopMlxServer().catch(() => {});
   if (keyListener) {

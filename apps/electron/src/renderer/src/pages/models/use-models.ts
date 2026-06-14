@@ -1,6 +1,7 @@
 import { getClient } from "@renderer/lib/api";
 import type {
   AvailableModel,
+  CrispAsrStatus,
   MlxAsrStatus,
   VoiceItem,
   WhisperStatus,
@@ -38,6 +39,7 @@ export interface UseModels {
   apiKeys: ApiKeyEntry[];
   whisperStatus: WhisperStatus | null;
   mlxStatus: MlxAsrStatus | null;
+  crispStatus: CrispAsrStatus | null;
   llmCleanup: boolean;
   mlxKeepAliveMinutes: number;
 
@@ -62,12 +64,15 @@ export interface UseModels {
   selectLocalVoice: (
     defId: string,
     name: string,
-    engine?: "whisper" | "mlx",
+    engine?: "whisper" | "mlx" | "crisp",
   ) => Promise<void>;
   retryLocalMlx: (defId: string) => Promise<void>;
-  downloadLocal: (defId: string, engine?: "whisper" | "mlx") => void;
-  cancelLocal: (defId: string, engine?: "whisper" | "mlx") => void;
-  deleteLocal: (defId: string, engine?: "whisper" | "mlx") => Promise<void>;
+  downloadLocal: (defId: string, engine?: "whisper" | "mlx" | "crisp") => void;
+  cancelLocal: (defId: string, engine?: "whisper" | "mlx" | "crisp") => void;
+  deleteLocal: (
+    defId: string,
+    engine?: "whisper" | "mlx" | "crisp",
+  ) => Promise<void>;
   selectLocalLlmModel: (modelName: string) => Promise<void>;
   setCleanup: (next: boolean) => void;
   saveMlxKeepAliveMinutes: (minutes: number) => void;
@@ -85,6 +90,7 @@ export function useModels(): UseModels {
     null,
   );
   const [mlxStatus, setMlxStatus] = useState<MlxAsrStatus | null>(null);
+  const [crispStatus, setCrispStatus] = useState<CrispAsrStatus | null>(null);
   const [mlxKeepAliveMinutes, setMlxKeepAliveMinutes] = useState(
     DEFAULT_MLX_KEEP_ALIVE_MINUTES,
   );
@@ -191,11 +197,30 @@ export function useModels(): UseModels {
     return null;
   }, []);
 
+  const loadCrispStatus = useCallback(async (refresh = false) => {
+    try {
+      const res = refresh
+        ? await getClient().api["crisp-asr"].status.$get({
+            query: { refresh: "1" },
+          })
+        : await getClient().api["crisp-asr"].status.$get();
+      if (res.ok) {
+        const data: CrispAsrStatus = await res.json();
+        setCrispStatus(data);
+        return data;
+      }
+    } catch (err) {
+      console.error("Failed to load CrispASR status:", err);
+    }
+    return null;
+  }, []);
+
   useEffect(() => {
     loadData();
     loadWhisperStatus();
     if (IS_MAC) loadMlxStatus();
-  }, [loadData, loadWhisperStatus, loadMlxStatus]);
+    else loadCrispStatus();
+  }, [loadData, loadWhisperStatus, loadMlxStatus, loadCrispStatus]);
 
   // Poll whisper status while a download is active.
   useEffect(() => {
@@ -242,6 +267,26 @@ export function useModels(): UseModels {
     return () => clearInterval(interval);
   }, [mlxStatus, loadMlxStatus, loadData]);
 
+  useEffect(() => {
+    const active = crispStatus?.models?.some(
+      (m) => m.status === "downloading" || m.status === "verifying",
+    );
+    if (!active) return;
+    const interval = setInterval(() => {
+      loadCrispStatus().then((data) => {
+        if (
+          data &&
+          !data.models?.some(
+            (m) => m.status === "downloading" || m.status === "verifying",
+          )
+        ) {
+          loadData();
+        }
+      });
+    }, 500);
+    return () => clearInterval(interval);
+  }, [crispStatus, loadCrispStatus, loadData]);
+
   // -------------------------------------------------------------------------
   // Derived state
   // -------------------------------------------------------------------------
@@ -258,6 +303,7 @@ export function useModels(): UseModels {
     available,
     whisperStatus,
     mlxStatus,
+    crispStatus,
     {
       defaultVoice,
       keyProviders,
@@ -313,8 +359,17 @@ export function useModels(): UseModels {
   );
 
   const selectLocalVoice = useCallback(
-    async (defId: string, name: string, engine?: "whisper" | "mlx") => {
-      const provider = engine === "mlx" ? "local-mlx" : "local-whisper";
+    async (
+      defId: string,
+      name: string,
+      engine?: "whisper" | "mlx" | "crisp",
+    ) => {
+      const provider =
+        engine === "mlx"
+          ? "local-mlx"
+          : engine === "crisp"
+            ? "local-crispasr"
+            : "local-whisper";
       await getClient().api.models.configured.$post({
         json: {
           provider,
@@ -328,6 +383,10 @@ export function useModels(): UseModels {
         getClient()
           .api["mlx-asr"].server.start.$post({ json: { modelId: defId } })
           .catch(() => {});
+      } else if (engine === "crisp") {
+        getClient()
+          .api["crisp-asr"].server.start.$post({ json: { modelId: defId } })
+          .catch(() => {});
       } else {
         getClient()
           .api.whisper.server.start.$post({ json: { modelId: defId } })
@@ -339,13 +398,19 @@ export function useModels(): UseModels {
   );
 
   const downloadLocal = useCallback(
-    (defId: string, engine?: "whisper" | "mlx") => {
+    (defId: string, engine?: "whisper" | "mlx" | "crisp") => {
       if (engine === "mlx") {
         void getClient()
           .api["mlx-asr"].models[":model"].download.$post({
             param: { model: defId },
           })
           .then(() => loadMlxStatus());
+      } else if (engine === "crisp") {
+        void getClient()
+          .api["crisp-asr"].models[":model"].download.$post({
+            param: { model: defId },
+          })
+          .then(() => loadCrispStatus());
       } else {
         void getClient()
           .api.whisper.models[":model"].download.$post({
@@ -354,17 +419,23 @@ export function useModels(): UseModels {
           .then(() => loadWhisperStatus());
       }
     },
-    [loadMlxStatus, loadWhisperStatus],
+    [loadCrispStatus, loadMlxStatus, loadWhisperStatus],
   );
 
   const cancelLocal = useCallback(
-    (defId: string, engine?: "whisper" | "mlx") => {
+    (defId: string, engine?: "whisper" | "mlx" | "crisp") => {
       if (engine === "mlx") {
         void getClient()
           .api["mlx-asr"].models[":model"].cancel.$post({
             param: { model: defId },
           })
           .then(() => loadMlxStatus());
+      } else if (engine === "crisp") {
+        void getClient()
+          .api["crisp-asr"].models[":model"].cancel.$post({
+            param: { model: defId },
+          })
+          .then(() => loadCrispStatus());
       } else {
         void getClient()
           .api.whisper.models[":model"].cancel.$post({
@@ -373,16 +444,21 @@ export function useModels(): UseModels {
           .then(() => loadWhisperStatus());
       }
     },
-    [loadMlxStatus, loadWhisperStatus],
+    [loadCrispStatus, loadMlxStatus, loadWhisperStatus],
   );
 
   const deleteLocal = useCallback(
-    async (defId: string, engine?: "whisper" | "mlx") => {
+    async (defId: string, engine?: "whisper" | "mlx" | "crisp") => {
       if (engine === "mlx") {
         await getClient().api["mlx-asr"].models[":model"].$delete({
           param: { model: defId },
         });
         await loadMlxStatus();
+      } else if (engine === "crisp") {
+        await getClient().api["crisp-asr"].models[":model"].$delete({
+          param: { model: defId },
+        });
+        await loadCrispStatus();
       } else {
         await getClient().api.whisper.models[":model"].$delete({
           param: { model: defId },
@@ -391,7 +467,7 @@ export function useModels(): UseModels {
       }
       await loadData();
     },
-    [loadMlxStatus, loadWhisperStatus, loadData],
+    [loadCrispStatus, loadMlxStatus, loadWhisperStatus, loadData],
   );
 
   const retryLocalMlx = useCallback(
@@ -539,6 +615,7 @@ export function useModels(): UseModels {
     apiKeys,
     whisperStatus,
     mlxStatus,
+    crispStatus,
     llmCleanup,
     mlxKeepAliveMinutes,
     keyProviders,

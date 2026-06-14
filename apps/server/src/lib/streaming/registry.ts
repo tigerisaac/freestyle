@@ -1,3 +1,4 @@
+import { CrispLocalTranscriptionProvider } from "./providers/crisp-local.js";
 import { DeepgramTranscriptionProvider } from "./providers/deepgram.js";
 import { ElevenLabsTranscriptionProvider } from "./providers/elevenlabs.js";
 import { GroqTranscriptionProvider } from "./providers/groq.js";
@@ -15,6 +16,7 @@ const providers: TranscriptionProvider[] = [
   new SonioxTranscriptionProvider(),
   new WhisperLocalTranscriptionProvider(),
   new MlxLocalTranscriptionProvider(),
+  new CrispLocalTranscriptionProvider(),
 ];
 
 const providerMap = new Map(providers.map((p) => [p.providerId, p]));

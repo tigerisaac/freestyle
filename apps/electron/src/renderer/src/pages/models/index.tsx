@@ -27,7 +27,7 @@ export default function ModelsPage(): React.JSX.Element {
 
   const [pendingLocalDelete, setPendingLocalDelete] = useState<{
     defId: string;
-    engine?: "whisper" | "mlx";
+    engine?: "whisper" | "mlx" | "crisp";
     name: string;
   } | null>(null);
   const [pendingProviderDelete, setPendingProviderDelete] = useState<
@@ -73,14 +73,14 @@ export default function ModelsPage(): React.JSX.Element {
   const onPickLocalVoice = (
     defId: string,
     name: string,
-    engine?: "whisper" | "mlx",
+    engine?: "whisper" | "mlx" | "crisp",
   ): void => {
     void m.selectLocalVoice(defId, name, engine).then(closeModal);
   };
 
   const onRequestDeleteLocal = (
     defId: string,
-    engine?: "whisper" | "mlx",
+    engine?: "whisper" | "mlx" | "crisp",
   ): void => {
     const item = m.voiceItems.find(
       (row) => row.defId === defId && row.localEngine === engine,
@@ -128,7 +128,10 @@ export default function ModelsPage(): React.JSX.Element {
   }
 
   const hasLocalVoice = m.configured.some(
-    (c) => c.provider === "local-whisper" || c.provider === "local-mlx",
+    (c) =>
+      c.provider === "local-whisper" ||
+      c.provider === "local-mlx" ||
+      c.provider === "local-crispasr",
   );
 
   // Show the MLX warming control when MLX is the active voice engine, or the

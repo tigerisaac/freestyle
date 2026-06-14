@@ -69,6 +69,40 @@ export interface MlxAsrStatus {
   setupHint: string | null;
 }
 
+export interface CrispRuntimeOption {
+  kind: "vulkan" | "cuda";
+  label: string;
+  sizeBytes: number;
+  available: boolean;
+  recommended: boolean;
+}
+
+export interface CrispAsrStatus {
+  platformSupported: boolean;
+  canRun: boolean;
+  blockedReason: string | null;
+  serverRunning: boolean;
+  serverFailed: boolean;
+  runtime: {
+    available: boolean;
+    kind: "vulkan" | "cuda" | null;
+    status: WhisperModelDownloadState["status"];
+    sizeBytes?: number;
+    downloadProgress?: WhisperModelDownloadState["downloadProgress"];
+    error?: string;
+  };
+  gpu: {
+    hasNvidia: boolean;
+    names: string[];
+    source: string;
+    defaultRuntime: "vulkan" | "cuda";
+  };
+  downloadOptions: CrispRuntimeOption[];
+  models: WhisperModelDownloadState[];
+  modelDefinitions: WhisperModelDef[];
+  setupHint: string | null;
+}
+
 export const CLOUD_VOICE_PROVIDERS = [
   "openai",
   "groq",
@@ -81,6 +115,7 @@ export const VOICE_PROVIDERS = [
   ...CLOUD_VOICE_PROVIDERS,
   "local-whisper",
   "local-mlx",
+  "local-crispasr",
 ];
 
 export const LLM_PROVIDERS = [
@@ -105,6 +140,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   "local-llm": "Local LLM",
   "local-whisper": "Local Whisper",
   "local-mlx": "Local MLX",
+  "local-crispasr": "Local Qwen",
 };
 
 /** Where to create an API key, linked from the key-entry views. */
@@ -141,7 +177,7 @@ export interface VoiceItem {
   key: string;
   kind: "local" | "cloud";
   /** Which on-device engine powers this row (whisper.cpp vs MLX). */
-  localEngine?: "whisper" | "mlx";
+  localEngine?: "whisper" | "mlx" | "crisp";
   name: string;
   provider: string;
   modelId: string;
@@ -226,7 +262,7 @@ export const LOCAL_VOICE_NOTES: Record<string, string> = {
   "base-q5_1": "Light and quick — good for older machines",
   "small-q5_1": "Solid everyday accuracy",
   large: "Most accurate on-device option",
-  "qwen3-0.6b-8bit": "Fast, accurate, runs privately on your Mac",
+  "qwen3-0.6b-8bit": "Fast, accurate, runs privately on your device",
   "qwen3-1.7b-8bit": "Highest on-device accuracy",
   "parakeet-tdt-0.6b-v3": "Very fast · 25 languages · no custom vocabulary",
 };
@@ -234,6 +270,7 @@ export const LOCAL_VOICE_NOTES: Record<string, string> = {
 /** The single recommended model per platform (one badge, everywhere). */
 export const RECOMMENDED_LOCAL_IDS = new Set([
   "local-mlx/qwen3-0.6b-8bit",
+  "local-crispasr/qwen3-0.6b-8bit",
   "local-whisper/small-q5_1",
 ]);
 
@@ -241,11 +278,13 @@ export function buildVoiceItems(
   available: AvailableModel[],
   whisperStatus: WhisperStatus | null,
   mlxStatus: MlxAsrStatus | null,
+  crispStatus: CrispAsrStatus | null,
   ctx: {
     selectedModelId?: string;
     selectedProvider?: string;
     selectedWhisperModelId?: string;
     selectedMlxModelId?: string;
+    selectedCrispModelId?: string;
     keyProviders: Set<string>;
   },
 ): VoiceItem[] {
@@ -325,12 +364,55 @@ export function buildVoiceItems(
           };
         });
 
+  const crispRuntimeExtraBytes = crispStatus?.runtime.available
+    ? 0
+    : (crispStatus?.downloadOptions.find(
+        (option) => option.kind === crispStatus?.gpu.defaultRuntime,
+      )?.sizeBytes ?? 0);
+
+  const crispLocal: VoiceItem[] =
+    crispStatus?.platformSupported === false
+      ? []
+      : (crispStatus?.modelDefinitions ?? []).map((def) => {
+          const modelId = `local-crispasr/${def.id}`;
+          const state = crispStatus?.models?.find(
+            (m) => m.model === def.id,
+          ) ?? {
+            model: def.id,
+            sizeBytes: def.sizeBytes,
+            displayName: def.displayName,
+            status: "not_downloaded" as const,
+          };
+          return {
+            key: modelId,
+            kind: "local",
+            localEngine: "crisp",
+            name: def.displayName,
+            provider: "On-device · CrispASR",
+            modelId,
+            speed: SPEED_RANK[def.speed] ?? 4,
+            quality: QUALITY_RANK[def.quality] ?? 4,
+            quantized: def.quantized,
+            note: LOCAL_VOICE_NOTES[def.id],
+            defId: def.id,
+            sizeBytes: def.sizeBytes + crispRuntimeExtraBytes,
+            ram: def.ramRequired,
+            status: state.status ?? "not_downloaded",
+            state,
+            selected:
+              ctx.selectedCrispModelId === def.id ||
+              (ctx.selectedProvider === "local-crispasr" &&
+                ctx.selectedModelId === modelId),
+          };
+        });
+
   const seen = new Set<string>();
   const cloud: VoiceItem[] = [];
   for (const m of available) {
     if (m.type !== "voice") continue;
     if (m.provider_id === "local-whisper") continue;
     if (m.provider_id === "local-mlx") continue;
+    if (m.provider_id === "local-crispasr") continue;
     if (!VOICE_PROVIDERS.includes(m.provider_id)) continue;
     if (seen.has(m.model_id)) continue;
     seen.add(m.model_id);
@@ -360,5 +442,5 @@ export function buildVoiceItems(
     return am - bm;
   });
 
-  return [...whisperLocal, ...mlxLocal, ...cloud];
+  return [...crispLocal, ...mlxLocal, ...whisperLocal, ...cloud];
 }

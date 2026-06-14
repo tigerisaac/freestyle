@@ -10,11 +10,12 @@ import {
   useHotkeyRecorder,
 } from "@renderer/hooks/use-hotkey-recorder";
 import { capture } from "@renderer/lib/analytics";
-import { getClient } from "@renderer/lib/api";
+import { getApiBase, getClient } from "@renderer/lib/api";
 import { defaultLanguage, ONBOARDING_LANGUAGES } from "@renderer/lib/languages";
 import {
   type AvailableModel,
   buildVoiceItems,
+  type CrispAsrStatus,
   formatBytes,
   type MlxAsrStatus,
   PROVIDER_DISPLAY_NAMES,
@@ -73,6 +74,7 @@ type LinuxSetup = {
 // the universal fallback (it builds its own binary, no Python required).
 // It downloads in the background while the user picks a language and a
 // hotkey — first-time users never choose a model.
+const RECOMMENDED_CRISP_DEF = "qwen3-0.6b-8bit";
 const RECOMMENDED_MLX_DEF = "qwen3-0.6b-8bit";
 const RECOMMENDED_WHISPER_DEF = "small-q5_1";
 
@@ -95,7 +97,11 @@ export default function OnboardingPage(): React.JSX.Element {
     string | null
   >(null);
   const [selectedMlxDefId, setSelectedMlxDefId] = useState<string | null>(null);
+  const [selectedCrispDefId, setSelectedCrispDefId] = useState<string | null>(
+    null,
+  );
   const [mlxStatus, setMlxStatus] = useState<MlxAsrStatus | null>(null);
+  const [crispStatus, setCrispStatus] = useState<CrispAsrStatus | null>(null);
   const [whisperStatus, setWhisperStatus] = useState<WhisperStatus | null>(
     null,
   );
@@ -249,12 +255,29 @@ export default function OnboardingPage(): React.JSX.Element {
     return null;
   }, []);
 
+  const loadCrispStatus = useCallback(async (refresh = false) => {
+    try {
+      const res = refresh
+        ? await getClient().api["crisp-asr"].status.$get({
+            query: { refresh: "1" },
+          })
+        : await getClient().api["crisp-asr"].status.$get();
+      if (res.ok) {
+        const data: CrispAsrStatus = await res.json();
+        setCrispStatus(data);
+        return data;
+      }
+    } catch {}
+    return null;
+  }, []);
+
   useEffect(() => {
     loadWhisperStatus();
     // MLX only exists on Apple Silicon; elsewhere there's nothing to wait for.
     if (IS_MAC) loadMlxStatus();
     else setMlxResolved(true);
-  }, [loadWhisperStatus, loadMlxStatus]);
+    if (IS_WINDOWS || IS_LINUX) loadCrispStatus();
+  }, [loadWhisperStatus, loadMlxStatus, loadCrispStatus]);
 
   // Poll while a download is active (whisper or mlx)
   useEffect(() => {
@@ -276,6 +299,15 @@ export default function OnboardingPage(): React.JSX.Element {
     const interval = setInterval(() => loadMlxStatus(), 500);
     return () => clearInterval(interval);
   }, [mlxStatus, loadMlxStatus]);
+
+  useEffect(() => {
+    const hasActiveDownload = crispStatus?.models?.some(
+      (m) => m.status === "downloading" || m.status === "verifying",
+    );
+    if (!hasActiveDownload) return;
+    const interval = setInterval(() => loadCrispStatus(), 500);
+    return () => clearInterval(interval);
+  }, [crispStatus, loadCrispStatus]);
 
   const requestMic = useCallback(async () => {
     capture("onboarding_mic_permission_clicked", { action: "allow" });
@@ -344,6 +376,7 @@ export default function OnboardingPage(): React.JSX.Element {
       setSelectedModel(model);
       setSelectedWhisperDefId(null);
       setSelectedMlxDefId(null);
+      setSelectedCrispDefId(null);
       if (apiKeys.has(model.provider_id)) {
         commitCloudModel(model);
       } else {
@@ -359,18 +392,29 @@ export default function OnboardingPage(): React.JSX.Element {
     (
       defId: string,
       name: string,
-      engine?: "whisper" | "mlx",
+      engine?: "whisper" | "mlx" | "crisp",
       source: "auto" | "selector" = "selector",
     ) => {
       if (engine === "mlx") {
         setSelectedMlxDefId(defId);
         setSelectedWhisperDefId(null);
+        setSelectedCrispDefId(null);
+      } else if (engine === "crisp") {
+        setSelectedCrispDefId(defId);
+        setSelectedMlxDefId(null);
+        setSelectedWhisperDefId(null);
       } else {
         setSelectedWhisperDefId(defId);
         setSelectedMlxDefId(null);
+        setSelectedCrispDefId(null);
       }
       setSelectedModel(null);
-      const provider = engine === "mlx" ? "local-mlx" : "local-whisper";
+      const provider =
+        engine === "mlx"
+          ? "local-mlx"
+          : engine === "crisp"
+            ? "local-crispasr"
+            : "local-whisper";
       getClient()
         .api.models.configured.$post({
           json: {
@@ -414,35 +458,65 @@ export default function OnboardingPage(): React.JSX.Element {
     [loadMlxStatus],
   );
 
+  const downloadCrispModel = useCallback(
+    async (modelId: string, runtime?: "vulkan" | "cuda") => {
+      const qs = runtime ? `?runtime=${encodeURIComponent(runtime)}` : "";
+      await fetch(
+        `${getApiBase()}/api/crisp-asr/models/${modelId}/download${qs}`,
+        {
+          method: "POST",
+        },
+      );
+      loadCrispStatus();
+    },
+    [loadCrispStatus],
+  );
+
   const downloadLocalModel = useCallback(
-    (modelId: string, engine?: "whisper" | "mlx") => {
+    (modelId: string, engine?: "whisper" | "mlx" | "crisp") => {
       if (engine === "mlx") {
         void downloadMlxModel(modelId);
         return;
       }
+      if (engine === "crisp") {
+        void downloadCrispModel(modelId);
+        return;
+      }
       void downloadWhisperModel(modelId);
     },
-    [downloadMlxModel, downloadWhisperModel],
+    [downloadCrispModel, downloadMlxModel, downloadWhisperModel],
   );
 
-  const allVoiceItems = buildVoiceItems(available, whisperStatus, mlxStatus, {
-    selectedModelId: selectedModel?.model_id,
-    selectedProvider:
-      selectedModel?.provider_id ??
-      (selectedWhisperDefId
-        ? "local-whisper"
-        : selectedMlxDefId
-          ? "local-mlx"
-          : undefined),
-    selectedWhisperModelId: selectedWhisperDefId ?? undefined,
-    selectedMlxModelId: selectedMlxDefId ?? undefined,
-    keyProviders: apiKeys,
-  });
+  const allVoiceItems = buildVoiceItems(
+    available,
+    whisperStatus,
+    mlxStatus,
+    crispStatus,
+    {
+      selectedModelId: selectedModel?.model_id,
+      selectedProvider:
+        selectedModel?.provider_id ??
+        (selectedWhisperDefId
+          ? "local-whisper"
+          : selectedMlxDefId
+            ? "local-mlx"
+            : selectedCrispDefId
+              ? "local-crispasr"
+              : undefined),
+      selectedWhisperModelId: selectedWhisperDefId ?? undefined,
+      selectedMlxModelId: selectedMlxDefId ?? undefined,
+      selectedCrispModelId: selectedCrispDefId ?? undefined,
+      keyProviders: apiKeys,
+    },
+  );
 
   // Resolve the opinionated recommendation: Qwen3 on-device when MLX can run,
   // otherwise whisper.cpp Base (universal).
   const mlxQwen = allVoiceItems.find(
     (v) => v.localEngine === "mlx" && v.defId === RECOMMENDED_MLX_DEF,
+  );
+  const crispQwen = allVoiceItems.find(
+    (v) => v.localEngine === "crisp" && v.defId === RECOMMENDED_CRISP_DEF,
   );
   const whisperBase = allVoiceItems.find(
     (v) => v.localEngine === "whisper" && v.defId === RECOMMENDED_WHISPER_DEF,
@@ -485,6 +559,12 @@ export default function OnboardingPage(): React.JSX.Element {
     if (warmTarget.localEngine === "mlx") {
       getClient()
         .api["mlx-asr"].server.start.$post({
+          json: { modelId: warmTarget.defId },
+        })
+        .catch(() => {});
+    } else if (warmTarget.localEngine === "crisp") {
+      getClient()
+        .api["crisp-asr"].server.start.$post({
           json: { modelId: warmTarget.defId },
         })
         .catch(() => {});
@@ -600,6 +680,27 @@ export default function OnboardingPage(): React.JSX.Element {
       ? (chosen.state?.error ?? "Model download failed")
       : null;
 
+  const crispVulkanOption = crispStatus?.downloadOptions.find(
+    (option) => option.kind === "vulkan" && option.available,
+  );
+  const crispCudaOption = crispStatus?.downloadOptions.find(
+    (option) => option.kind === "cuda" && option.available,
+  );
+  const crispPromptVisible =
+    (IS_WINDOWS || IS_LINUX) &&
+    !!crispQwen &&
+    crispStatus?.platformSupported === true &&
+    (crispQwen.status === "not_downloaded" || crispQwen.status === "error");
+
+  const startRecommendedCrispDownload = useCallback(
+    (runtime: "vulkan" | "cuda") => {
+      if (!crispQwen?.defId) return;
+      selectLocalModel(crispQwen.defId, crispQwen.name, "crisp", "selector");
+      void downloadCrispModel(crispQwen.defId, runtime);
+    },
+    [crispQwen, downloadCrispModel, selectLocalModel],
+  );
+
   return (
     <div className="bg-background flex h-screen flex-col">
       {!isFullscreen && (
@@ -658,6 +759,31 @@ export default function OnboardingPage(): React.JSX.Element {
             modelName={chosen?.name}
             setupStatus={setupStatus}
             setupError={setupError}
+            crispPromptVisible={crispPromptVisible}
+            crispPromptModelName={crispQwen?.name}
+            crispPromptDefaultSize={
+              crispQwen && crispVulkanOption
+                ? formatBytes(crispQwen.sizeBytes ?? 0)
+                : null
+            }
+            crispPromptCudaSize={
+              crispQwen && crispCudaOption
+                ? formatBytes(
+                    (crispQwen.state?.sizeBytes ?? crispQwen.sizeBytes ?? 0) +
+                      crispCudaOption.sizeBytes,
+                  )
+                : null
+            }
+            onDownloadCrispVulkan={
+              crispVulkanOption
+                ? () => startRecommendedCrispDownload("vulkan")
+                : undefined
+            }
+            onDownloadCrispCuda={
+              crispCudaOption
+                ? () => startRecommendedCrispDownload("cuda")
+                : undefined
+            }
             onOpenSelector={() => {
               capture("onboarding_model_selector_opened");
               setShowSelector(true);
@@ -699,6 +825,10 @@ export default function OnboardingPage(): React.JSX.Element {
             if (engine === "mlx") {
               void loadMlxStatus(true).then((data) => {
                 if (data?.canRun) void downloadMlxModel(defId);
+              });
+            } else if (engine === "crisp") {
+              void loadCrispStatus(true).then((data) => {
+                if (data?.platformSupported) void downloadCrispModel(defId);
               });
             } else {
               downloadWhisperModel(defId);
@@ -1035,10 +1165,10 @@ function ModelSelectorOverlay({
   onSelectLocal: (
     defId: string,
     name: string,
-    engine?: "whisper" | "mlx",
+    engine?: "whisper" | "mlx" | "crisp",
   ) => void;
-  onDownload: (defId: string, engine?: "whisper" | "mlx") => void;
-  onRetryLocal: (defId: string, engine: "whisper" | "mlx") => void;
+  onDownload: (defId: string, engine?: "whisper" | "mlx" | "crisp") => void;
+  onRetryLocal: (defId: string, engine: "whisper" | "mlx" | "crisp") => void;
   onClose: () => void;
   onSaveKey: () => Promise<boolean>;
 }): React.JSX.Element {
@@ -1084,12 +1214,17 @@ function ModelSelectorOverlay({
   const handleSelectLocal = (
     defId: string,
     name: string,
-    engine?: "whisper" | "mlx",
+    engine?: "whisper" | "mlx" | "crisp",
   ) => {
     capture("onboarding_model_selected", {
-      model_id: `${engine === "mlx" ? "local-mlx" : "local-whisper"}/${defId}`,
+      model_id: `${engine === "mlx" ? "local-mlx" : engine === "crisp" ? "local-crispasr" : "local-whisper"}/${defId}`,
       kind: "local",
-      provider: engine === "mlx" ? "local-mlx" : "local-whisper",
+      provider:
+        engine === "mlx"
+          ? "local-mlx"
+          : engine === "crisp"
+            ? "local-crispasr"
+            : "local-whisper",
       from: "selector",
     });
     onSelectLocal(defId, name, engine);
@@ -1352,6 +1487,12 @@ function TutorialStep({
   modelName,
   setupStatus,
   setupError,
+  crispPromptVisible,
+  crispPromptModelName,
+  crispPromptDefaultSize,
+  crispPromptCudaSize,
+  onDownloadCrispVulkan,
+  onDownloadCrispCuda,
   onOpenSelector,
   onStartRecording,
   onCancelRecording,
@@ -1367,6 +1508,12 @@ function TutorialStep({
   modelName?: string;
   setupStatus: string | null;
   setupError: string | null;
+  crispPromptVisible: boolean;
+  crispPromptModelName?: string;
+  crispPromptDefaultSize: string | null;
+  crispPromptCudaSize: string | null;
+  onDownloadCrispVulkan?: () => void;
+  onDownloadCrispCuda?: () => void;
   onOpenSelector: () => void;
   onStartRecording: () => void;
   onCancelRecording: () => void;
@@ -1407,6 +1554,38 @@ function TutorialStep({
             : "Choose a different model"}
         </button>
       </div>
+
+      {crispPromptVisible && crispPromptModelName && onDownloadCrispVulkan && (
+        <div className="border-border bg-card mx-auto mt-5 max-w-[460px] rounded-[12px] border p-4">
+          <div className="text-foreground text-[14px] font-medium">
+            Recommended on Windows & Linux: {crispPromptModelName}
+          </div>
+          <p className="text-muted-foreground mt-1 text-[12.5px] leading-relaxed">
+            Downloads CrispASR on demand and keeps everything local. Vulkan is
+            the default path; CUDA is optional if you have an NVIDIA GPU.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onDownloadCrispVulkan}
+              className="bg-foreground text-background hover:bg-foreground/90 rounded-[7px] px-3.5 py-2 text-[12.5px] font-medium"
+            >
+              Download Qwen
+              {crispPromptDefaultSize ? ` · ${crispPromptDefaultSize}` : ""}
+            </button>
+            {onDownloadCrispCuda && (
+              <button
+                type="button"
+                onClick={onDownloadCrispCuda}
+                className="border-border hover:bg-secondary rounded-[7px] border px-3.5 py-2 text-[12.5px] font-medium"
+              >
+                Use CUDA
+                {crispPromptCudaSize ? ` · ${crispPromptCudaSize}` : ""}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Hotkey rebind — a single minimal control */}
       <div className="mt-5 flex justify-center">

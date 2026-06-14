@@ -1,4 +1,11 @@
 import { Hono } from "hono";
+import {
+  CRISP_ASR_MODELS,
+  CRISP_ASR_PROVIDER_ID,
+  CRISP_ASR_PROVIDER_NAME,
+} from "../lib/crisp-asr/constants.js";
+import { getCrispModelStatus } from "../lib/crisp-asr/models.js";
+import { startCrispInBackground } from "../lib/crisp-asr/server.js";
 import { getDb } from "../lib/db.js";
 import {
   LEGACY_MLX_ASR_MODELS,
@@ -7,7 +14,7 @@ import {
   MLX_ASR_PROVIDER_NAME,
 } from "../lib/mlx-asr/constants.js";
 import { getMlxModelStatus } from "../lib/mlx-asr/models.js";
-import { reconcileUnsupportedMlxVoiceDefault } from "../lib/mlx-asr/reconcile.js";
+import { reconcileUnsupportedLocalVoiceDefault } from "../lib/mlx-asr/reconcile.js";
 import { canRunMlxAsr } from "../lib/mlx-asr/server.js";
 import { capture } from "../lib/posthog.js";
 import { stripProviderPrefix } from "../lib/streaming/types.js";
@@ -106,6 +113,19 @@ const LOCAL_MLX_VOICE_MODELS: AvailableModel[] = [
   cost_input: 0,
   cost_output: 0,
 }));
+
+const LOCAL_CRISP_VOICE_MODELS: AvailableModel[] = CRISP_ASR_MODELS.map(
+  (m) => ({
+    provider_id: CRISP_ASR_PROVIDER_ID,
+    provider_name: CRISP_ASR_PROVIDER_NAME,
+    model_id: `${CRISP_ASR_PROVIDER_ID}/${m.id}`,
+    model_name: m.displayName,
+    family: m.family,
+    type: "voice" as const,
+    cost_input: 0,
+    cost_output: 0,
+  }),
+);
 
 // Curated cloud voice catalog: one flagship per provider. The models.dev
 // registry is deliberately NOT merged for voice — untested model noise.
@@ -357,6 +377,14 @@ const models = new Hono()
         }
       }
 
+      for (const crispModel of LOCAL_CRISP_VOICE_MODELS) {
+        const modelId = crispModel.model_id.split("/")[1];
+        const status = getCrispModelStatus(modelId);
+        if (status?.status === "ready") {
+          available.push({ ...crispModel, curated: true });
+        }
+      }
+
       if (canRunMlxAsr()) {
         for (const mlxModel of LOCAL_MLX_VOICE_MODELS) {
           const modelId = mlxModel.model_id.split("/")[1];
@@ -384,7 +412,7 @@ const models = new Hono()
     }
   })
   .get("/configured", (c) => {
-    reconcileUnsupportedMlxVoiceDefault();
+    reconcileUnsupportedLocalVoiceDefault();
     const db = getDb();
     const rows = db
       .prepare(
@@ -478,14 +506,13 @@ const models = new Hono()
       model_id: row.model_id,
     });
 
-    // Pre-warm the local whisper server so the first transcription after a
-    // model switch doesn't pay the model-load latency.
-    if (
-      row.type === "voice" &&
-      row.provider === WHISPER_PROVIDER_ID &&
-      isServerBinaryAvailable()
-    ) {
-      startInBackground(stripProviderPrefix(row.model_id));
+    if (row.type === "voice") {
+      const modelId = stripProviderPrefix(row.model_id);
+      if (row.provider === WHISPER_PROVIDER_ID && isServerBinaryAvailable()) {
+        startInBackground(modelId);
+      } else if (row.provider === CRISP_ASR_PROVIDER_ID) {
+        startCrispInBackground(modelId);
+      }
     }
 
     return c.json({ ok: true });

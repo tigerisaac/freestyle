@@ -1,4 +1,9 @@
 import { createAppLogger } from "@freestyle/utils";
+import {
+  CRISP_ASR_PROVIDER_ID,
+  isCrispAsrPlatformSupported,
+} from "../crisp-asr/constants.js";
+import { stopCrispAsrServer } from "../crisp-asr/server.js";
 import { getDb } from "../db.js";
 import { WHISPER_MODELS, WHISPER_PROVIDER_ID } from "../whisper/constants.js";
 import { getModelStatus as getWhisperModelStatus } from "../whisper/models.js";
@@ -6,7 +11,7 @@ import { MLX_ASR_PROVIDER_ID } from "./constants.js";
 import { canRunMlxAsr, stopMlxServer } from "./server.js";
 
 const log = createAppLogger("mlx-asr");
-const PREFERRED_WHISPER_FALLBACK_ID = "base-q5_1";
+const PREFERRED_WHISPER_FALLBACK_ID = "small-q5_1";
 
 function pickWhisperFallbackId(): string {
   const preferred = getWhisperModelStatus(PREFERRED_WHISPER_FALLBACK_ID);
@@ -25,16 +30,23 @@ function pickWhisperFallbackId(): string {
  * If the default voice model is MLX but this machine cannot run MLX (e.g. Intel Mac),
  * switch the default to local Whisper so transcription keeps working.
  */
-export function reconcileUnsupportedMlxVoiceDefault(): boolean {
-  if (canRunMlxAsr()) return false;
-
+export function reconcileUnsupportedLocalVoiceDefault(): boolean {
   const db = getDb();
   const voice = db
     .prepare(
       "SELECT provider FROM model_configs WHERE type = 'voice' AND is_default = 1 LIMIT 1",
     )
     .get() as { provider: string } | undefined;
-  if (voice?.provider !== MLX_ASR_PROVIDER_ID) return false;
+  if (!voice) return false;
+
+  const provider = voice.provider;
+  if (provider === MLX_ASR_PROVIDER_ID && canRunMlxAsr()) return false;
+  if (provider === CRISP_ASR_PROVIDER_ID && isCrispAsrPlatformSupported()) {
+    return false;
+  }
+  if (provider !== MLX_ASR_PROVIDER_ID && provider !== CRISP_ASR_PROVIDER_ID) {
+    return false;
+  }
 
   const whisperId = pickWhisperFallbackId();
   const whisperDef =
@@ -62,11 +74,19 @@ export function reconcileUnsupportedMlxVoiceDefault(): boolean {
     throw err;
   }
 
-  stopMlxServer().catch(() => {});
+  if (provider === MLX_ASR_PROVIDER_ID) {
+    stopMlxServer().catch(() => {});
+  } else if (provider === CRISP_ASR_PROVIDER_ID) {
+    stopCrispAsrServer().catch(() => {});
+  }
 
   log.debug(
-    `Default voice was MLX but this machine cannot run it; switched to Whisper ${whisperId}`,
+    `Default voice was ${provider} but this machine cannot run it; switched to Whisper ${whisperId}`,
   );
 
   return true;
+}
+
+export function reconcileUnsupportedMlxVoiceDefault(): boolean {
+  return reconcileUnsupportedLocalVoiceDefault();
 }

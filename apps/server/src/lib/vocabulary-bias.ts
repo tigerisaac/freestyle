@@ -170,7 +170,8 @@ export function buildAsrVocabularyBias(
         ? { kind: "elevenlabs-keyterms", terms: keyterms }
         : null;
     }
-    case "local-mlx": {
+    case "local-mlx":
+    case "local-crispasr": {
       const parts: string[] = [];
       if (contextPrompt?.trim()) parts.push(contextPrompt.trim());
       if (capped.length > 0) {

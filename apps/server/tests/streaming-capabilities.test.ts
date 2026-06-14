@@ -5,6 +5,18 @@ import {
 } from "../src/lib/streaming/registry.js";
 
 describe("streaming capabilities", () => {
+  it("marks CrispASR as batch-only session transport", () => {
+    expect(
+      supportsStreaming("local-crispasr", "local-crispasr/qwen3-0.6b-8bit"),
+    ).toBe(false);
+    expect(
+      supportsSessionTransport(
+        "local-crispasr",
+        "local-crispasr/qwen3-0.6b-8bit",
+      ),
+    ).toBe(true);
+  });
+
   it("marks MLX as batch-only session transport", () => {
     expect(supportsStreaming("local-mlx", "local-mlx/qwen3-0.6b-8bit")).toBe(
       false,
