@@ -4,8 +4,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { getClient } from "@renderer/lib/api";
 import { cn } from "@renderer/lib/utils";
 import { FileText, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { type UseFormReturn, useForm } from "react-hook-form";
 
 interface FormatRule {
   id: number;
@@ -24,6 +24,7 @@ export default function FormatsPage(): React.JSX.Element {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const editFormRef = useRef<HTMLFormElement>(null);
   const form = useForm<CreateFormatInput>({
     resolver: zodResolver(createFormatSchema),
     defaultValues: { label: "", app_pattern: "", instructions: "" },
@@ -69,6 +70,14 @@ export default function FormatsPage(): React.JSX.Element {
     },
     [form],
   );
+
+  useEffect(() => {
+    if (!editingId) return;
+    editFormRef.current?.scrollIntoView({
+      block: "nearest",
+      behavior: "smooth",
+    });
+  }, [editingId]);
 
   const saveRule = useCallback(
     async (data: CreateFormatInput) => {
@@ -163,100 +172,34 @@ export default function FormatsPage(): React.JSX.Element {
           )}
         </div>
 
-        {/* Add/Edit form */}
-        {showForm && (
-          <form
-            onSubmit={form.handleSubmit(saveRule)}
-            className="border-border bg-card mb-6 rounded-[12px] border px-[18px] py-4"
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <span className="mono text-muted-foreground text-[10px] uppercase tracking-[0.16em]">
-                {editingId ? "Edit format" : "New format"}
-              </span>
-              <button
-                type="button"
-                onClick={resetForm}
-                className="text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                <X size={14} />
-              </button>
-            </div>
-            <div className="space-y-3.5">
-              <FormField
-                label="Label"
-                error={form.formState.errors.label?.message}
-              >
-                <input
-                  type="text"
-                  {...form.register("label")}
-                  placeholder='e.g. "Email" or "Slack"'
-                  className={cn(
-                    "border-border bg-background w-full rounded-[7px] border px-[11px] py-2 text-[13px] outline-none",
-                    form.formState.errors.label && "border-destructive",
-                  )}
-                />
-              </FormField>
-              <FormField
-                label="App pattern · pipe-separated"
-                error={form.formState.errors.app_pattern?.message}
-                hint="Matched against the app name, URL, and page title. Case-insensitive."
-              >
-                <input
-                  type="text"
-                  {...form.register("app_pattern")}
-                  placeholder="e.g. mail.google.com | outlook | Spark"
-                  className={cn(
-                    "border-border bg-background mono w-full rounded-[7px] border px-[11px] py-2 text-[13px] outline-none",
-                    form.formState.errors.app_pattern && "border-destructive",
-                  )}
-                />
-              </FormField>
-              <FormField
-                label="Instructions · sent to the LLM"
-                error={form.formState.errors.instructions?.message}
-              >
-                <textarea
-                  {...form.register("instructions")}
-                  placeholder="Tell the LLM how to format the text…"
-                  rows={3}
-                  className={cn(
-                    "border-border bg-background w-full resize-none rounded-[7px] border px-[11px] py-2 text-[13px] leading-[1.5] outline-none",
-                    form.formState.errors.instructions && "border-destructive",
-                  )}
-                />
-              </FormField>
-              {formError && (
-                <p className="text-destructive text-xs">{formError}</p>
-              )}
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  className="border-border text-secondary-foreground/80 hover:text-foreground cursor-pointer rounded-md border px-3 py-1.5 text-[12.5px] font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer rounded-md px-3 py-1.5 text-[12.5px] font-medium"
-                >
-                  {editingId ? "Update" : "Add format"}
-                </button>
-              </div>
-            </div>
-          </form>
+        {/* New format form */}
+        {showForm && !editingId && (
+          <FormatForm
+            editingId={null}
+            form={form}
+            formError={formError}
+            onSubmit={saveRule}
+            onCancel={resetForm}
+            className="mb-6"
+          />
         )}
 
         {/* Custom section */}
         {customRules.length > 0 && (
           <Section label="Custom">
             {customRules.map((rule) => (
-              <FormatCard
+              <FormatRuleRow
                 key={rule.id}
                 rule={rule}
                 custom
+                editing={showForm && editingId === rule.id}
+                form={form}
+                formError={formError}
+                formRef={editingId === rule.id ? editFormRef : undefined}
                 onEdit={startEdit}
                 onDelete={deleteRule}
+                onSubmit={saveRule}
+                onCancel={resetForm}
               />
             ))}
           </Section>
@@ -266,11 +209,17 @@ export default function FormatsPage(): React.JSX.Element {
         {defaultRules.length > 0 && (
           <Section label="Defaults">
             {defaultRules.map((rule) => (
-              <FormatCard
+              <FormatRuleRow
                 key={rule.id}
                 rule={rule}
+                editing={showForm && editingId === rule.id}
+                form={form}
+                formError={formError}
+                formRef={editingId === rule.id ? editFormRef : undefined}
                 onEdit={startEdit}
                 onDelete={deleteRule}
+                onSubmit={saveRule}
+                onCancel={resetForm}
               />
             ))}
           </Section>
@@ -355,6 +304,151 @@ function Section({
         {label}
       </div>
       <div className="flex flex-col gap-2.5">{children}</div>
+    </div>
+  );
+}
+
+function FormatForm({
+  editingId,
+  form,
+  formError,
+  onSubmit,
+  onCancel,
+  formRef,
+  className,
+}: {
+  editingId: number | null;
+  form: UseFormReturn<CreateFormatInput>;
+  formError: string | null;
+  onSubmit: (data: CreateFormatInput) => void;
+  onCancel: () => void;
+  formRef?: React.RefObject<HTMLFormElement | null>;
+  className?: string;
+}): React.JSX.Element {
+  return (
+    <form
+      ref={formRef}
+      onSubmit={form.handleSubmit(onSubmit)}
+      className={cn(
+        "border-border bg-card rounded-[12px] border px-[18px] py-4",
+        className,
+      )}
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <span className="mono text-muted-foreground text-[10px] uppercase tracking-[0.16em]">
+          {editingId ? "Edit format" : "New format"}
+        </span>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-muted-foreground hover:text-foreground cursor-pointer"
+        >
+          <X size={14} />
+        </button>
+      </div>
+      <div className="space-y-3.5">
+        <FormField label="Label" error={form.formState.errors.label?.message}>
+          <input
+            type="text"
+            {...form.register("label")}
+            placeholder='e.g. "Email" or "Slack"'
+            className={cn(
+              "border-border bg-background w-full rounded-[7px] border px-[11px] py-2 text-[13px] outline-none",
+              form.formState.errors.label && "border-destructive",
+            )}
+          />
+        </FormField>
+        <FormField
+          label="App pattern · pipe-separated"
+          error={form.formState.errors.app_pattern?.message}
+          hint="Matched against the app name, URL, and page title. Case-insensitive."
+        >
+          <input
+            type="text"
+            {...form.register("app_pattern")}
+            placeholder="e.g. mail.google.com | outlook | Spark"
+            className={cn(
+              "border-border bg-background mono w-full rounded-[7px] border px-[11px] py-2 text-[13px] outline-none",
+              form.formState.errors.app_pattern && "border-destructive",
+            )}
+          />
+        </FormField>
+        <FormField
+          label="Instructions · sent to the LLM"
+          error={form.formState.errors.instructions?.message}
+        >
+          <textarea
+            {...form.register("instructions")}
+            placeholder="Tell the LLM how to format the text…"
+            rows={3}
+            className={cn(
+              "border-border bg-background w-full resize-none rounded-[7px] border px-[11px] py-2 text-[13px] leading-[1.5] outline-none",
+              form.formState.errors.instructions && "border-destructive",
+            )}
+          />
+        </FormField>
+        {formError && <p className="text-destructive text-xs">{formError}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="border-border text-secondary-foreground/80 hover:text-foreground cursor-pointer rounded-md border px-3 py-1.5 text-[12.5px] font-medium"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer rounded-md px-3 py-1.5 text-[12.5px] font-medium"
+          >
+            {editingId ? "Update" : "Add format"}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+function FormatRuleRow({
+  rule,
+  custom,
+  editing,
+  form,
+  formError,
+  formRef,
+  onEdit,
+  onDelete,
+  onSubmit,
+  onCancel,
+}: {
+  rule: FormatRule;
+  custom?: boolean;
+  editing: boolean;
+  form: UseFormReturn<CreateFormatInput>;
+  formError: string | null;
+  formRef?: React.RefObject<HTMLFormElement | null>;
+  onEdit: (rule: FormatRule) => void;
+  onDelete: (id: number) => void;
+  onSubmit: (data: CreateFormatInput) => void;
+  onCancel: () => void;
+}): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-2.5">
+      <FormatCard
+        rule={rule}
+        custom={custom}
+        onEdit={onEdit}
+        onDelete={onDelete}
+      />
+      {editing && (
+        <FormatForm
+          editingId={rule.id}
+          form={form}
+          formError={formError}
+          formRef={formRef}
+          onSubmit={onSubmit}
+          onCancel={onCancel}
+        />
+      )}
     </div>
   );
 }
