@@ -1,5 +1,8 @@
 import { Hono } from "hono";
-import { getLanguageSetting } from "../lib/language.js";
+import {
+  getLanguageSetting,
+  normalizeLanguageSetting,
+} from "../lib/language.js";
 import { postProcess } from "../lib/post-process.js";
 
 const postProcessRoute = new Hono().post("/", async (c) => {
@@ -11,7 +14,9 @@ const postProcessRoute = new Hono().post("/", async (c) => {
 
   const appContext: string | null = body.appContext ?? null;
   const language =
-    typeof body.language === "string" ? body.language : getLanguageSetting();
+    typeof body.language === "string"
+      ? normalizeLanguageSetting(body.language)
+      : getLanguageSetting();
 
   const pp = await postProcess(body.text, appContext, {
     language,

@@ -1,8 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { normalizeLanguageSetting } from "../src/lib/language.js";
+import {
+  normalizeLanguageHintsSetting,
+  normalizeLanguageSetting,
+  parseLanguageSetting,
+} from "../src/lib/language.js";
 import { resolveMlxLanguage } from "../src/lib/mlx-asr/language.js";
 import { createPcmUpsampler } from "../src/lib/streaming/pcm.js";
+import { buildSonioxSessionConfig } from "../src/lib/streaming/providers/soniox.js";
 import { aiSdkProviderOptions } from "../src/lib/streaming/utils.js";
+
+describe("parseLanguageSetting", () => {
+  it("splits comma-separated language hints", () => {
+    expect(parseLanguageSetting("en,es,fr")).toEqual(["en", "es", "fr"]);
+  });
+
+  it("trims entries and drops duplicates", () => {
+    expect(parseLanguageSetting(" en, es ,en ,, fr ")).toEqual([
+      "en",
+      "es",
+      "fr",
+    ]);
+  });
+
+  it("returns an empty list for auto and missing values", () => {
+    expect(parseLanguageSetting("auto")).toEqual([]);
+    expect(parseLanguageSetting("")).toEqual([]);
+    expect(parseLanguageSetting(null)).toEqual([]);
+    expect(parseLanguageSetting(undefined)).toEqual([]);
+  });
+});
 
 describe("normalizeLanguageSetting", () => {
   it("passes ISO codes through", () => {
@@ -10,11 +36,54 @@ describe("normalizeLanguageSetting", () => {
     expect(normalizeLanguageSetting("uk")).toBe("uk");
   });
 
+  it("omits the cleanup language when multiple hints are selected", () => {
+    expect(normalizeLanguageSetting("en,es")).toBeUndefined();
+  });
+
   it("normalizes auto, empty, and missing values to undefined", () => {
     expect(normalizeLanguageSetting("auto")).toBeUndefined();
     expect(normalizeLanguageSetting("")).toBeUndefined();
     expect(normalizeLanguageSetting(null)).toBeUndefined();
     expect(normalizeLanguageSetting(undefined)).toBeUndefined();
+  });
+});
+
+describe("normalizeLanguageHintsSetting", () => {
+  it("returns every configured language hint", () => {
+    expect(normalizeLanguageHintsSetting("en,es")).toEqual(["en", "es"]);
+  });
+
+  it("returns undefined for auto and missing values", () => {
+    expect(normalizeLanguageHintsSetting("auto")).toBeUndefined();
+    expect(normalizeLanguageHintsSetting("")).toBeUndefined();
+    expect(normalizeLanguageHintsSetting(null)).toBeUndefined();
+    expect(normalizeLanguageHintsSetting(undefined)).toBeUndefined();
+  });
+});
+
+describe("buildSonioxSessionConfig", () => {
+  it("sends multiple language hints as separate entries", () => {
+    expect(
+      buildSonioxSessionConfig({
+        apiKey: "test",
+        model: "soniox/stt-rt-v4",
+        languageHints: ["en", "es"],
+      }),
+    ).toMatchObject({
+      language_hints: ["en", "es"],
+    });
+  });
+
+  it("falls back to the single language hint when no list is provided", () => {
+    expect(
+      buildSonioxSessionConfig({
+        apiKey: "test",
+        model: "soniox/stt-rt-v4",
+        language: "fr",
+      }),
+    ).toMatchObject({
+      language_hints: ["fr"],
+    });
   });
 });
 

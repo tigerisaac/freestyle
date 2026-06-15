@@ -2,7 +2,10 @@ import { createAppLogger } from "@freestyle/utils";
 import { Hono } from "hono";
 import { getDb } from "../lib/db.js";
 import { sanitizeTranscriptText } from "../lib/editor/model-hints.js";
-import { getLanguageSetting } from "../lib/language.js";
+import {
+  getLanguageHintsSetting,
+  getLanguageSetting,
+} from "../lib/language.js";
 import { postProcess } from "../lib/post-process.js";
 import { capture, captureException } from "../lib/posthog.js";
 import { getDefaultModels } from "../lib/providers.js";
@@ -71,6 +74,7 @@ const transcribeRoute = new Hono().post("/", async (c) => {
   const db = getDb();
   let rawText: string;
   const language = getLanguageSetting();
+  const languageHints = getLanguageHintsSetting();
 
   const provider = getProvider(defaults.voice.provider);
   if (!provider) {
@@ -104,6 +108,7 @@ const transcribeRoute = new Hono().post("/", async (c) => {
       model: defaults.voice.model_id,
       apiKey,
       ...(language ? { language } : {}),
+      ...(languageHints ? { languageHints } : {}),
       bias,
     });
     rawText = sanitizeTranscriptText(result.text);

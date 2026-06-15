@@ -45,8 +45,6 @@ const navItems: NavItem[] = [
   { to: "/help", label: "Help", icon: HelpCircle, shortcut: "8" },
 ];
 
-const PRIMARY_COUNT = 6;
-
 function NavList({ items }: { items: NavItem[] }): React.JSX.Element {
   return (
     <nav
@@ -148,9 +146,7 @@ export default function AppShell(): React.JSX.Element {
           </span>
         </div>
 
-        <NavList items={navItems.slice(0, PRIMARY_COUNT)} />
-        <div className="flex-1" />
-        <NavList items={navItems.slice(PRIMARY_COUNT)} />
+        <NavList items={navItems} />
         <div className="h-3" />
       </aside>
 

@@ -3,7 +3,10 @@ import { upgradeWebSocket } from "@hono/node-server";
 import { Hono } from "hono";
 import { getDb } from "../lib/db.js";
 import { sanitizeTranscriptText } from "../lib/editor/model-hints.js";
-import { getLanguageSetting } from "../lib/language.js";
+import {
+  getLanguageHintsSetting,
+  getLanguageSetting,
+} from "../lib/language.js";
 import { postProcess, prewarmPostProcess } from "../lib/post-process.js";
 import { capture, captureException } from "../lib/posthog.js";
 import { getDefaultModels } from "../lib/providers.js";
@@ -57,12 +60,14 @@ const stream = new Hono().get(
     function resolveStreamConfig(): {
       voice: { provider: string; model_id: string };
       language: string | undefined;
+      languageHints: string[] | undefined;
       bias: ReturnType<typeof resolveAsrVocabularyBias>;
       key: string;
     } | null {
       const voice = getDefaultModels().voice;
       if (!voice) return null;
       const language = getLanguageSetting();
+      const languageHints = getLanguageHintsSetting();
       const bias = resolveAsrVocabularyBias(
         voice.provider,
         voice.model_id,
@@ -71,11 +76,13 @@ const stream = new Hono().get(
       return {
         voice,
         language,
+        languageHints,
         bias,
         key: JSON.stringify([
           voice.provider,
           voice.model_id,
           language ?? null,
+          languageHints ?? null,
           bias,
         ]),
       };
@@ -219,6 +226,7 @@ const stream = new Hono().get(
         apiKey,
         model: voice.model_id,
         language: config.language,
+        languageHints: config.languageHints,
         bias: config.bias,
         callbacks: {
           onReady: (readyModel) => {

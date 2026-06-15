@@ -25,15 +25,20 @@ function renderTokens(
   return [...finalTokens, ...nonFinalTokens].map((t) => t.text ?? "").join("");
 }
 
-function languageHints(language: string | undefined): string[] | undefined {
+function resolveLanguageHints(
+  language: string | undefined,
+  hints: string[] | undefined,
+): string[] | undefined {
+  if (hints && hints.length > 0) return hints;
   if (!language || language === "auto") return undefined;
   return [language];
 }
 
-function buildSonioxSessionConfig(opts: {
+export function buildSonioxSessionConfig(opts: {
   apiKey: string;
   model: string;
   language?: string;
+  languageHints?: string[];
   bias?: TranscribeOptions["bias"];
 }): Record<string, unknown> {
   const config: Record<string, unknown> = {
@@ -44,7 +49,7 @@ function buildSonioxSessionConfig(opts: {
     num_channels: 1,
     enable_endpoint_detection: false,
   };
-  const hints = languageHints(opts.language);
+  const hints = resolveLanguageHints(opts.language, opts.languageHints);
   if (hints) config.language_hints = hints;
   const context = sonioxContextFromBias(opts.bias);
   if (context) config.context = context;
@@ -128,7 +133,7 @@ export class SonioxTranscriptionProvider implements TranscriptionProvider {
   }
 
   openStreamingSession(opts: StreamingSessionOptions): StreamSession {
-    const { apiKey, model, language, bias, callbacks } = opts;
+    const { apiKey, model, language, languageHints, bias, callbacks } = opts;
     const short = stripProviderPrefix(model);
 
     const finalTokens: SonioxToken[] = [];
@@ -161,6 +166,7 @@ export class SonioxTranscriptionProvider implements TranscriptionProvider {
         apiKey,
         model,
         language,
+        languageHints,
         bias,
       });
       ws.send(JSON.stringify(config));

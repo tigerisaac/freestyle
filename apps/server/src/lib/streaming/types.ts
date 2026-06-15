@@ -28,6 +28,11 @@ export interface TranscribeOptions {
   apiKey: string;
   /** ISO-639-1 language hint; omitted lets the model auto-detect. */
   language?: string;
+  /**
+   * Optional ordered language hints for providers that support multiple
+   * simultaneous hints. Single-language providers ignore this.
+   */
+  languageHints?: string[];
   /** ASR-only vocabulary bias for the first recognition pass. */
   bias?: AsrVocabularyBias | null;
 }
@@ -50,6 +55,11 @@ export interface StreamingSessionOptions {
    * auto-detect, which each provider must translate to its own wire value.
    */
   language?: string;
+  /**
+   * Optional ordered language hints for providers that support multiple
+   * simultaneous hints. Single-language providers ignore this.
+   */
+  languageHints?: string[];
   /** ASR-only vocabulary bias for the first recognition pass. */
   bias?: AsrVocabularyBias | null;
   callbacks: StreamCallbacks;

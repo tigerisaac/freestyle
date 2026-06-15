@@ -15,10 +15,19 @@ export function openStreamingSession(opts: {
   apiKey: string;
   model: string;
   language?: string;
+  languageHints?: string[];
   bias?: AsrVocabularyBias | null;
   callbacks: StreamCallbacks;
 }): StreamSession {
-  const { providerId, apiKey, model, language, bias, callbacks } = opts;
+  const {
+    providerId,
+    apiKey,
+    model,
+    language,
+    languageHints,
+    bias,
+    callbacks,
+  } = opts;
 
   const provider = getProvider(providerId);
   if (!provider) {
@@ -37,6 +46,7 @@ export function openStreamingSession(opts: {
     apiKey,
     model,
     language,
+    languageHints,
     bias,
     callbacks,
   });
