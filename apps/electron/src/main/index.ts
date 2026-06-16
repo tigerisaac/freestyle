@@ -75,14 +75,21 @@ import { autoUpdater } from "electron-updater";
 import { WebSocketServer } from "ws";
 import icon from "../../resources/icon.png?asset";
 import trayIconPath from "../../resources/tray/logoTemplate.png?asset";
+import { isActiveAudioPlaybackMode } from "../shared/audio-playback";
 import { getDefaultHotkey } from "../shared/hotkey-defaults";
+import { AudioPlaybackController } from "./audio-control/controller";
 import { HotkeyRecorder } from "./hotkey-recorder";
 import { normalizeAccelerator } from "./hotkey-utils";
 import { NativeKeyListener } from "./key-listener";
 import * as linuxAutostart from "./linux-autostart";
 import { checkLinuxSetup } from "./linux-setup";
 import { MicListener } from "./mic-listener";
-import { isWaylandSession, pasteIntoFocusedApp } from "./paste";
+import {
+  isWaylandSession,
+  pasteIntoFocusedApp,
+  startLinuxPasteHelper,
+  stopLinuxPasteHelper,
+} from "./paste";
 
 const log = createAppLogger("electron");
 const hotkeyLog = createAppLogger("hotkey");
@@ -147,6 +154,7 @@ let currentHotkeyAccel: string | null = null;
 let hotkeyActivationMode: "hold" | "toggle" = "hold";
 let micListener: MicListener | null = null;
 let hotkeyRecorder: HotkeyRecorder | null = null;
+const audioPlaybackController = new AudioPlaybackController();
 
 function stopHotkeyRecorderProcess(): void {
   hotkeyRecorder?.stop();
@@ -1078,6 +1086,8 @@ app.on("second-instance", () => {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
+  void startLinuxPasteHelper();
+
   // Set app user model id for windows
   electronApp.setAppUserModelId("com.freestyle.app");
 
@@ -1116,9 +1126,30 @@ app.whenReady().then(async () => {
     clipboard.writeText(text);
   });
 
+  ipcMain.handle("audio:prepare", async (_event, mode: unknown) => {
+    if (!isActiveAudioPlaybackMode(mode)) return;
+    await audioPlaybackController.prepare(mode);
+  });
+
+  ipcMain.handle("audio:duck", async () => {
+    await audioPlaybackController.duck();
+  });
+
+  ipcMain.handle("audio:restore", async () => {
+    await audioPlaybackController.restore();
+  });
+
   // IPC: broadcast output mode changes to pill window
   ipcMain.on("settings:output-mode-changed", (_event, mode: string) => {
     mainWindow?.webContents.send("settings:output-mode-changed", mode);
+  });
+
+  ipcMain.on("settings:audio-ducking-changed", (_event, enabled: boolean) => {
+    mainWindow?.webContents.send("settings:audio-ducking-changed", enabled);
+  });
+
+  ipcMain.on("settings:audio-playback-mode-changed", (_event, mode: string) => {
+    mainWindow?.webContents.send("settings:audio-playback-mode-changed", mode);
   });
 
   // IPC: hide the pill window on request from renderer
@@ -1933,6 +1964,8 @@ async function registerHotkey(hotkey?: string): Promise<void> {
 
 // Clean up key listener and mic listener on quit
 app.on("will-quit", () => {
+  audioPlaybackController.restoreSync();
+  stopLinuxPasteHelper();
   if (keyListener) {
     keyListener.stop();
     keyListener = null;
@@ -1965,6 +1998,8 @@ let isQuitting = false;
 let updateDownloadState: "idle" | "downloading" | "downloaded" = "idle";
 
 function cleanupBeforeQuit(): void {
+  audioPlaybackController.restoreSync();
+  stopLinuxPasteHelper();
   stopWhisperServer().catch(() => {});
   stopMlxServer().catch(() => {});
   if (keyListener) {
