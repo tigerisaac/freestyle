@@ -15,6 +15,34 @@ const MAX_RESTARTS = 3;
 const RESTART_COOLDOWN_MS = 3_000;
 const STABILITY_THRESHOLD_MS = 30_000;
 
+/** whisper.cpp v1.8.x GPU accel modes tried in order on Linux/Windows. */
+type GpuAccelMode = "default" | "no-flash-attn" | "no-gpu";
+
+const GPU_ACCEL_FALLBACK: GpuAccelMode[] = [
+  "default",
+  "no-flash-attn",
+  "no-gpu",
+];
+
+/** Remember a working mode for this process so restarts skip known-bad settings. */
+let cachedGpuAccelMode: GpuAccelMode | null = null;
+
+function extraArgsForGpuMode(mode: GpuAccelMode): string[] {
+  switch (mode) {
+    case "no-gpu":
+      return ["--no-gpu", "--no-flash-attn"];
+    case "no-flash-attn":
+      return ["--no-flash-attn"];
+    default:
+      return [];
+  }
+}
+
+function gpuModesToTry(): GpuAccelMode[] {
+  if (process.platform === "darwin") return ["default"];
+  return cachedGpuAccelMode ? [cachedGpuAccelMode] : GPU_ACCEL_FALLBACK;
+}
+
 let serverProcess: ChildProcess | null = null;
 let currentModelId: string | null = null;
 let serverReady = false;
@@ -100,6 +128,43 @@ async function doStart(modelId: string): Promise<void> {
     throw new Error(`Whisper model "${modelId}" not downloaded`);
   }
 
+  const modes = gpuModesToTry();
+  let lastError: Error | undefined;
+
+  for (const mode of modes) {
+    try {
+      await startServerProcess(serverBinary, modelPath, modelId, mode);
+      if (mode !== "default") {
+        log.info(`whisper-server started with GPU fallback: ${mode}`);
+      }
+      cachedGpuAccelMode = mode;
+      startStabilityTimer();
+      return;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // Release the port before the next attempt (e.g. after a startup timeout).
+      if (serverProcess) {
+        const keepAutoRestart = autoRestart;
+        await stopServer();
+        autoRestart = keepAutoRestart;
+      }
+      if (mode !== modes.at(-1)) {
+        log.warn(
+          `whisper-server failed with ${mode} settings, trying a safer fallback`,
+        );
+      }
+    }
+  }
+
+  throw lastError ?? new Error("whisper-server failed to start");
+}
+
+async function startServerProcess(
+  serverBinary: string,
+  modelPath: string,
+  modelId: string,
+  gpuMode: GpuAccelMode,
+): Promise<void> {
   currentModelId = modelId;
   serverReady = false;
 
@@ -110,6 +175,7 @@ async function doStart(modelId: string): Promise<void> {
     String(WHISPER_SERVER_PORT),
     "--host",
     "127.0.0.1",
+    ...extraArgsForGpuMode(gpuMode),
   ];
 
   const proc = spawn(serverBinary, args, {
@@ -212,8 +278,6 @@ async function doStart(modelId: string): Promise<void> {
       }
     });
   });
-
-  startStabilityTimer();
 }
 
 function scheduleRestart(modelId: string): void {
