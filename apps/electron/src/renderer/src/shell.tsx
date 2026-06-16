@@ -121,7 +121,7 @@ export default function AppShell(): React.JSX.Element {
   }, []);
 
   return (
-    <div className="bg-background flex h-screen">
+    <div className="bg-background flex h-screen min-h-0">
       <aside
         className="border-border bg-sidebar flex w-[220px] shrink-0 flex-col border-r"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
@@ -154,7 +154,7 @@ export default function AppShell(): React.JSX.Element {
         <div className="h-3" />
       </aside>
 
-      <div className="relative min-w-0 flex-1">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         <div
           className="absolute right-3 top-2.5 z-20 flex items-center gap-2"
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
@@ -180,7 +180,7 @@ export default function AppShell(): React.JSX.Element {
         </div>
 
         <main
-          className="h-full overflow-auto"
+          className="flex min-h-0 flex-1 flex-col overflow-auto"
           style={{ scrollbarWidth: "none" } as React.CSSProperties}
         >
           <Outlet />
