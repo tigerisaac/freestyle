@@ -8,6 +8,7 @@ import {
   type AudioPlaybackMode,
   normalizeAudioPlaybackMode,
 } from "../../../shared/audio-playback";
+import { SETTINGS_KEYS } from "../../../shared/settings-keys";
 
 const BARS = 14;
 const RISE = 0.55;
@@ -121,8 +122,8 @@ export default function AppPage(): React.JSX.Element {
   const [elapsed, setElapsed] = useState(0);
   const [pillAlign, setPillAlign] = useState<"start" | "end">("end");
   const [pillSide, setPillSide] = useState<"center" | "right">("center");
-  const useStreamingRef = useRef(false);
-  const sessionStreamingRef = useRef(false);
+  const supportsSessionTransportRef = useRef(false);
+  const recordingSessionUsesTransportRef = useRef(false);
 
   const [pendingCount, setPendingCount] = useState(0);
 
@@ -273,8 +274,8 @@ export default function AppPage(): React.JSX.Element {
       window.api.sendTranscriptionDone();
 
       // North-star usage metric: fires exactly once per completed dictation,
-      // at the single point where single-chunk, multi-chunk, and streaming
-      // paths converge and text is delivered to the user.
+      // at the single point where single-chunk, multi-chunk, and
+      // session-transport paths converge and text is delivered to the user.
       capture("dictation completed", {
         segments: nonEmpty.length,
         multi_segment: nonEmpty.length > 1,
@@ -343,9 +344,9 @@ export default function AppPage(): React.JSX.Element {
     if (!streamerRef.current) {
       streamerRef.current = new Streamer(getApiBase(), {
         onConfig: (config) => {
-          useStreamingRef.current = config.streaming;
+          supportsSessionTransportRef.current = config.sessionTransport;
           if (wantsMicRef.current) {
-            sessionStreamingRef.current = config.streaming;
+            recordingSessionUsesTransportRef.current = config.sessionTransport;
           }
         },
         onReady: () => {},
@@ -369,7 +370,7 @@ export default function AppPage(): React.JSX.Element {
             resolver({ raw: "", cleaned: "", error: msg });
             return;
           }
-          if (!useStreamingRef.current) return;
+          if (!supportsSessionTransportRef.current) return;
           if (!pillActiveRef.current) return;
           if (wantsMicRef.current) return;
           hidePill();
@@ -596,7 +597,9 @@ export default function AppPage(): React.JSX.Element {
           return;
         }
 
-        sessionStreamingRef.current = useStreamingRef.current;
+        recordingSessionUsesTransportRef.current =
+          supportsSessionTransportRef.current;
+
         const stream = await recorderRef.current.acquireStream();
 
         if (!wantsMicRef.current) {
@@ -689,7 +692,7 @@ export default function AppPage(): React.JSX.Element {
     setPillState("transcribing");
     startBarAnimation("speaking");
 
-    if (sessionStreamingRef.current && streamerRef.current) {
+    if (recordingSessionUsesTransportRef.current && streamerRef.current) {
       recorderRef.current.cancel();
       recorderRef.current.releaseStream();
       window.api?.restoreSystemAudio().catch(() => {});
@@ -844,7 +847,7 @@ export default function AppPage(): React.JSX.Element {
 
   useEffect(() => {
     getClient()
-      .api.settings[":key"].$get({ param: { key: "sound_enabled" } })
+      .api.settings[":key"].$get({ param: { key: SETTINGS_KEYS.soundEnabled } })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.value === "false") _soundEnabled = false;
@@ -884,7 +887,7 @@ export default function AppPage(): React.JSX.Element {
       } catch {}
     })();
     getClient()
-      .api.settings[":key"].$get({ param: { key: "output_mode" } })
+      .api.settings[":key"].$get({ param: { key: SETTINGS_KEYS.outputMode } })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.value) _outputMode = data.value;
