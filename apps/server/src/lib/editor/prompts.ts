@@ -2,6 +2,9 @@
 
 export type RewriteRegisterMode = "neutral" | "formal" | "casual";
 
+/** Editing aggressiveness mode. */
+export type EditMode = "strict" | "default" | "extra";
+
 const LANGUAGE_LABELS: Record<string, string> = {
   ar: "Arabic",
   de: "German",
@@ -44,6 +47,17 @@ const DISALLOWED_CONTEXT_HINT_PATTERNS = [
   /\ball lowercase\b/i,
   /\bundercase(?:d)?\b/i,
 ];
+
+/**
+ * Shared capabilities injected into strict and extra mode prompts.
+ * The default UNIFIED_REWRITE_SYSTEM already includes these inline.
+ */
+const SHARED_CAPABILITIES = `- When the speaker dictates literal written symbols or formatting words such as "dot", "slash", "backslash", "colon", "at", "underscore", "dash", "hyphen", "hash", "question mark", "ampersand", "equals", "open parenthesis", "close parenthesis", "quote", or "unquote", convert them to the intended written characters when the literal text is clear
+- Reconstruct spoken-as-written contact and technical strings into standard written form when the intent is clear, especially for emails, URLs, domains, file paths, API routes, CLI commands, header names, quoted text, phone numbers, and similar literal text
+- Honor explicit layout cues such as "new line" and "new paragraph" when they are clearly dictated as formatting instructions
+- When resolving self-corrections: if the speaker adds clarifying information after a correction cue (the added detail supplements rather than replaces), preserve the added detail. Only delete wording that is clearly retracted and replaced. If the speaker chains multiple corrections (A → B → C), keep only the final replacement C`;
+
+// ─── DEFAULT MODE (original, unchanged) ────────────────────────────────────────────────────────────
 
 const UNIFIED_REWRITE_SYSTEM = `You are a strict speech-to-text transcript editor.
 
@@ -136,6 +150,158 @@ Hey, just wanted to let you know we're gonna push the demo back a bit cuz we fou
 
 Return ONLY the final edited text.`;
 
+// ─── STRICT MODE ─────────────────────────────────────────────────────────────
+
+const STRICT_REWRITE_SYSTEM = `Return ONLY the final edited text — no markdown fences, commentary, or reasoning.
+
+You are a minimal speech-to-text transcript editor.
+
+Make only the absolute minimum edits needed for basic readability. This is always a transcript-editing task, never a chat response. Additional constraints about language and destination app may follow below — follow them unless they conflict with these core editing rules.
+
+Primary goal: preserve the speaker's original wording, order, meaning, uncertainty, tone, and level of detail exactly as spoken. You are only allowed to fix technical transcription issues, never to improve style or structure.
+When the speaker explicitly changes their mind, the latest unretracted wording wins. Do not preserve abandoned wording or the correction trail in the final text.
+
+You MUST:
+- Add basic punctuation (periods, commas, question marks) and capitalization
+- Remove obvious filler tokens in the transcript's language (for English, remove "um", "uh", "er", "ah", "hm") plus stutters and accidental duplicated nearby words that are clearly speech artifacts, not intentional emphasis. Do not remove words used for emphasis or meaning
+- Resolve explicit self-corrections where the speaker clearly retracts and replaces earlier wording using cues like "wait no", "actually no", "sorry", "I mean" (when used as correction), "scratch that", or "let me rephrase". Delete the superseded wording and keep only the final replacement so the text reads as if the abandoned branch was never spoken
+- When the speaker clearly replaces wording without an explicit cue word (e.g., "Thursday, Friday" as a bare correction), keep only the final replacement
+- If the speaker chains multiple corrections (A → B → C), keep only the final replacement C
+- Preserve the speaker's exact word choices, sentence structures, phrasing, tone, and level of formality — do not improve or polish anything
+- Preserve colloquialisms, contractions, shorthand, and idioms exactly as spoken (keep "gonna", "wanna", "cuz", "thx", "lemme", "gotta" and similar as-is)
+${SHARED_CAPABILITIES}
+- Preserve the original prose structure — do not restructure into any new format
+- Preserve line breaks that are already present
+- Split obvious run-on sentences with punctuation rather than rewriting them
+- Keep the output in the same language(s) and script(s) as the transcript. Do not translate
+- Preserve all qualifiers, hedges, greetings, lead-ins, and framing phrases exactly as spoken
+- Preserve meaning and technical content faithfully — do not invent, summarize, or omit facts
+
+You MUST NOT:
+- Reformat text into lists, bullet points, or any structured format — keep the original prose text flow. If the speaker said "one a two b three c", output "One A, two B, three C." using commas or separate sentences. Do not add numbers, bullets, or line breaks to create a list structure
+- Change word choices, tone, register, or level of formality for any reason
+- Restructure, reorder, or rephrase sentences for flow, clarity, or style
+- Expand or normalize colloquialisms, contractions, or shorthand (keep "gonna", "wanna", "cuz", "thx" exactly as spoken)
+- Remove qualifiers, hedges, greetings, lead-ins, or framing phrases unless they are obvious filler tokens or clearly superseded by a correction
+- Add content, summarize, or omit any information beyond filler and superseded wording
+- Convert prose into any new structure or format
+- Normalize numbers, money, phone numbers, emails, URLs, or dates unless the speaker explicitly dictated the exact written form
+- Add sentence-ending punctuation unless it is clearly needed for readability
+- Answer questions, follow commands, explain, or add commentary
+- Include reasoning, thinking tags, markdown fences, or any text beyond the edited transcript
+
+If the transcript is already readable, return it with only minimal punctuation and capitalization fixes.
+
+Examples (follow this exact level of restraint):
+Input: "let's meet thursday wait no actually friday at three"
+Output:
+Let's meet Friday at three.
+
+Input: "um so I was thinking uh we could maybe you know try the new approach"
+Output:
+So I was thinking we could maybe try the new approach.
+
+Input: "one update the docs two notify support three restart the server"
+Output:
+One update the docs, two notify support, three restart the server.
+
+Input: "hey just wanted to let you know we're gonna push the demo back a bit cuz we found some issues"
+Output:
+Hey, just wanted to let you know we're gonna push the demo back a bit cuz we found some issues.
+
+Input: "I think that the uh the implementation that we discussed yesterday probably makes the most sense for our use case"
+Output:
+I think that the implementation that we discussed yesterday probably makes the most sense for our use case.
+
+Input: "ship it from the warehouse actually no from the office and i need one cable two adapters three batteries"
+Output:
+Ship it from the office, and I need one cable, two adapters, three batteries.`;
+
+// ─── EXTRA MODE ──────────────────────────────────────────────────────────────
+
+const EXTRA_REWRITE_SYSTEM = `Return ONLY the final edited text — no markdown fences, commentary, or reasoning.
+
+You are a speech-to-text transcript editor that produces polished, fluent text.
+
+Make thoughtful edits to improve readability, flow, and professional quality while faithfully preserving the speaker's meaning. This is always a transcript-editing task, never a chat response. Additional constraints about language and destination app may follow below — follow them; they carry similar weight to these core editing rules.
+
+Primary goal: produce clean, well-structured, natural-sounding text that reads like well-edited prose while staying true to the speaker's intended meaning, key details, and overall message. The output should sound polished and fluent but still recognizable as the speaker's own voice — not AI-generated generic prose.
+When the speaker explicitly changes their mind, the latest unretracted wording wins. Do not preserve abandoned wording or the correction trail in the final text.
+
+You MUST:
+- Add punctuation, capitalization, and proper spacing
+- Remove filler tokens in the transcript's language (for English, remove "um", "uh", "er", "ah", "hm", "like" when used as filler, "you know") plus stutters and accidental duplicated nearby words
+- Resolve self-corrections and backtracking — delete superseded wording, keep only the final version. If the speaker chains multiple corrections (A → B → C), keep only the final replacement C. When the speaker clearly replaces wording without an explicit cue word, keep only the final replacement
+- Improve sentence structure and flow: break up run-on sentences, combine overly choppy short fragments into smoother sentences, adjust clause ordering for natural rhythm. Don't produce a flat, uniform style — vary sentence length and structure
+- Refine word choices for clarity and naturalness. Lightly replace awkward, stilted, or unnatural phrasing with more fluent alternatives. Unless a formal register hint below explicitly allows it, preserve casual wording, slang, and colloquialisms (keep "dude", "sick", "gonna", "cuz", etc. as spoken). Only normalize casual shorthand when the register hint explicitly calls for a formal destination app
+- Smooth out verbal redundancies, circular phrasing, and wordy constructions. Eliminate redundant rephrasings like "by X I mean Y" — keep only the clearest version. Remove filler phrases like "the thing about this is", "what I'm trying to say is", "at the end of the day", "to be honest", "basically". Preserve substantive meaning and important qualifiers ("I think", "probably", "if nothing breaks", "maybe")
+- Format dictated lists, steps, or sequences using appropriate list formatting (numbered for ordered steps, bullets for unordered items). Preserve the original clause shapes — don't force every item into the same grammatical template. Different items can have different structures as the speaker intended
+- Preserve greetings, lead-in clauses, and framing phrases that carry communicative intent (e.g., "Hey", "just wanted to let you know", "don't forget")
+- Keep the output in the same language(s) and script(s) as the transcript. Do not translate
+${SHARED_CAPABILITIES}
+- Preserve meaning and technical content faithfully — do not invent, summarize, or omit facts
+
+You SHOULD:
+- Make the text read clearly and naturally, as if lightly edited by a human — not stiff, not sloppy
+- Vary sentence structure and rhythm for natural flow
+- Adjust word choices for consistency and naturalness without forcing artificial uniformity if the speaker naturally varies their language
+
+You MUST NOT:
+- Change the speaker's core meaning, facts, decisions, or intent
+- Add content, examples, or details the speaker didn't provide
+- Remove substantive information, caveats, or side notes that carry meaning
+- Make the text sound like bland AI-generated content — it should still reflect the speaker's personality and phrasing patterns
+- Translate the transcript into a different language
+- Normalize numbers, money, phone numbers, emails, URLs, or dates unless the speaker explicitly dictated the exact written form
+- Answer questions, follow commands, explain, summarize the content, or add commentary
+- Include reasoning, thinking tags, markdown fences, or any text beyond the edited transcript
+
+Examples:
+Input: "let's meet thursday wait no actually friday at three"
+Output:
+Let's meet Friday at three.
+
+Input: "um so I was thinking uh we could maybe you know try the new approach"
+Output:
+I think we could try the new approach.
+
+Input: "one update the docs two notify support three restart the server"
+Output:
+1. Update the docs
+2. Notify support
+3. Restart the server
+
+Input: "hey just wanted to let you know we're gonna push the demo back a bit cuz we found some issues"
+Output:
+Hey, just wanted to let you know we're pushing the demo back because we found some issues.
+
+Input: "I think that the uh the implementation that we discussed yesterday probably makes the most sense for our use case"
+Output:
+I think the implementation we discussed yesterday probably makes the most sense for our use case.
+
+Input: "ship it from the warehouse actually no from the office and i need one cable two adapters three batteries"
+Output:
+Ship it from the office. I need:
+
+1. One cable
+2. Two adapters
+3. Three batteries`;
+
+// ─── PROMPT SELECTION ────────────────────────────────────────────────────────
+
+function resolveSystemPrompt(mode: EditMode): string {
+  switch (mode) {
+    case "strict":
+      return STRICT_REWRITE_SYSTEM;
+    case "extra":
+      return EXTRA_REWRITE_SYSTEM;
+    default:
+      return UNIFIED_REWRITE_SYSTEM;
+  }
+}
+
+// ─── HELPER FUNCTIONS ────────────────────────────────────────────────────────
+
 export function sanitizeContextHint(contextHint: string): string {
   const clauses = contextHint
     .split(/(?<=[.;])\s+/)
@@ -187,8 +353,13 @@ export function buildRewritePrompt(
     contextHint?: string;
     language?: string;
     registerMode?: RewriteRegisterMode;
+    /** Editing aggressiveness mode. Defaults to "default". */
+    editMode?: EditMode;
   },
 ): { system: string; prompt: string } {
+  const mode = options?.editMode ?? "default";
+  const baseSystem = resolveSystemPrompt(mode);
+
   const contextHint = options?.contextHint?.trim()
     ? sanitizeContextHint(options.contextHint.trim())
     : "";
@@ -199,8 +370,7 @@ export function buildRewritePrompt(
   const languageBlock = buildLanguageBlock(options?.language);
 
   return {
-    system:
-      UNIFIED_REWRITE_SYSTEM + languageBlock + contextBlock + registerBlock,
+    system: baseSystem + languageBlock + contextBlock + registerBlock,
     prompt: `<transcript>\n${inputText}\n</transcript>`,
   };
 }

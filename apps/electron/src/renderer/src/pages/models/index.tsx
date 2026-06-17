@@ -148,9 +148,11 @@ export default function ModelsPage(): React.JSX.Element {
           voice={m.defaultVoice}
           llm={m.defaultLlm}
           llmCleanup={m.llmCleanup}
+          editMode={m.editMode}
           onToggleCleanup={m.setCleanup}
           onChangeVoice={openVoice}
           onChangeLlm={openLlm}
+          onChangeEditMode={m.setEditMode}
           onConfigureWarming={
             showMlxWarming ? () => setWarmingOpen(true) : undefined
           }

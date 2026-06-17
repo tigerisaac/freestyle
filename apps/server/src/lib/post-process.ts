@@ -6,7 +6,7 @@ import { getDb } from "./db.js";
 import { applyDictionaryReplacements } from "./dictionary-replacements.js";
 import { maxOutputTokensForCleanup } from "./editor/max-output-tokens.js";
 import { sanitizeTranscriptText } from "./editor/model-hints.js";
-import { buildRewritePrompt } from "./editor/prompts.js";
+import { buildRewritePrompt, type EditMode } from "./editor/prompts.js";
 import { getRewritePromptContext } from "./editor/rewrite-context.js";
 import {
   getGroqChatModel,
@@ -42,6 +42,8 @@ export type PostProcessSource =
 export interface PostProcessOptions {
   source?: PostProcessSource;
   language?: string;
+  /** Editing aggressiveness mode override. Falls back to "edit_mode" setting. */
+  editMode?: EditMode;
   /** Return handoff/llm timing breakdown for pipeline logs. */
   includeTimings?: boolean;
 }
@@ -51,6 +53,19 @@ function isLlmCleanupEnabled(db: ReturnType<typeof getDb>): boolean {
     .prepare("SELECT value FROM settings WHERE key = 'llm_cleanup'")
     .get() as { value: string } | undefined;
   return llmSetting?.value === "true";
+}
+
+function resolveEditMode(
+  db: ReturnType<typeof getDb>,
+  override?: EditMode,
+): EditMode {
+  if (override) return override;
+  const row = db
+    .prepare("SELECT value FROM settings WHERE key = 'edit_mode'")
+    .get() as { value: string } | undefined;
+  const value = row?.value;
+  if (value === "strict" || value === "extra") return value;
+  return "default";
 }
 
 function resolveChatModel(provider: string, modelId: string) {
@@ -144,10 +159,12 @@ export async function postProcess(
       );
     } else {
       const rewriteContext = getRewritePromptContext(appContext, db);
+      const editMode = resolveEditMode(db, options.editMode);
       const { system, prompt } = buildRewritePrompt(normalizedRawText, {
         contextHint: rewriteContext.contextHint || undefined,
         language: options.language,
         registerMode: rewriteContext.registerMode,
+        editMode,
       });
 
       handoffMs = Date.now() - handoffStart;

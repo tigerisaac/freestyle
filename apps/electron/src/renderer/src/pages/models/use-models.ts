@@ -19,6 +19,8 @@ import {
 const IS_MAC =
   typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
 
+export type EditMode = "strict" | "default" | "extra";
+
 export interface LocalLlmState {
   url: string;
   setUrl: (v: string) => void;
@@ -40,6 +42,8 @@ export interface UseModels {
   whisperStatus: WhisperStatus | null;
   mlxStatus: MlxAsrStatus | null;
   llmCleanup: boolean;
+  editMode: EditMode;
+  setEditMode: (next: EditMode) => void;
   mlxKeepAliveMinutes: number;
 
   // Derived
@@ -81,6 +85,9 @@ export function useModels(): UseModels {
   const [apiKeys, setApiKeys] = useState<ApiKeyEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [llmCleanup, setLlmCleanup] = useState(false);
+  const [editMode, setEditMode] = useState<"strict" | "default" | "extra">(
+    "default",
+  );
 
   const [whisperStatus, setWhisperStatus] = useState<WhisperStatus | null>(
     null,
@@ -113,6 +120,7 @@ export function useModels(): UseModels {
         localUrlRes,
         localKeyRes,
         mlxKeepAliveRes,
+        editModeRes,
       ] = await Promise.all([
         client.api.models.available.$get(),
         client.api.models.configured.$get(),
@@ -128,6 +136,9 @@ export function useModels(): UseModels {
         }),
         client.api.settings[":key"].$get({
           param: { key: SETTINGS_KEYS.mlxAsrKeepAliveMinutes },
+        }),
+        client.api.settings[":key"].$get({
+          param: { key: SETTINGS_KEYS.editMode },
         }),
       ]);
       if (availRes.ok) setAvailable(await availRes.json());
@@ -151,6 +162,11 @@ export function useModels(): UseModels {
         if (Number.isFinite(minutes)) {
           setMlxKeepAliveMinutes(clampMlxKeepAliveMinutes(minutes));
         }
+      }
+      if (editModeRes.ok) {
+        const data = await editModeRes.json();
+        const value = "value" in data ? String(data.value) : "";
+        if (value === "strict" || value === "extra") setEditMode(value);
       }
     } catch (err) {
       console.error("Failed to load models data:", err);
@@ -441,6 +457,16 @@ export function useModels(): UseModels {
       .catch((err) => console.error("Failed to save LLM cleanup:", err));
   }, []);
 
+  const persistEditMode = useCallback((next: EditMode) => {
+    setEditMode(next);
+    getClient()
+      .api.settings[":key"].$put({
+        param: { key: SETTINGS_KEYS.editMode },
+        json: { value: next },
+      })
+      .catch((err) => console.error("Failed to save edit mode:", err));
+  }, []);
+
   // Persist the MLX keep-alive window. At 0 ("cold start") also stop the
   // running server so the model unloads immediately.
   const saveMlxKeepAliveMinutes = useCallback((minutes: number) => {
@@ -545,6 +571,8 @@ export function useModels(): UseModels {
     whisperStatus,
     mlxStatus,
     llmCleanup,
+    editMode,
+    setEditMode: persistEditMode,
     mlxKeepAliveMinutes,
     keyProviders,
     defaultVoice,

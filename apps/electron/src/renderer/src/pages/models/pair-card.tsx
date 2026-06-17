@@ -1,8 +1,10 @@
 import { Toggle } from "@renderer/components/voice-row";
 import { cn } from "@renderer/lib/utils";
+import { useTranslation } from "react-i18next";
 
 import { Eyebrow } from "./page-chrome";
 import type { ConfiguredModel } from "./types";
+import type { EditMode } from "./use-models";
 import { displayName } from "./utils";
 
 // ---------------------------------------------------------------------------
@@ -14,17 +16,21 @@ export function PairCard({
   voice,
   llm,
   llmCleanup,
+  editMode,
   onToggleCleanup,
   onChangeVoice,
   onChangeLlm,
+  onChangeEditMode,
   onConfigureWarming,
 }: {
   voice: ConfiguredModel | undefined;
   llm: ConfiguredModel | undefined;
   llmCleanup: boolean;
+  editMode: EditMode;
   onToggleCleanup: (next: boolean) => void;
   onChangeVoice: () => void;
   onChangeLlm: () => void;
+  onChangeEditMode: (next: EditMode) => void;
   /** When set, shows a "Configure model warming" link by the voice button. */
   onConfigureWarming?: () => void;
 }): React.JSX.Element {
@@ -62,8 +68,51 @@ export function PairCard({
           onChange={onChangeLlm}
           dimmed={!llmCleanup}
         />
+        {llmCleanup && (
+          <EditModeSelector mode={editMode} onChange={onChangeEditMode} />
+        )}
       </div>
     </section>
+  );
+}
+
+function EditModeSelector({
+  mode,
+  onChange,
+}: {
+  mode: EditMode;
+  onChange: (next: EditMode) => void;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const modes: { key: EditMode; label: string }[] = [
+    { key: "strict", label: t("models.editModeStrict", "Strict") },
+    { key: "default", label: t("models.editModeDefault", "Default") },
+    { key: "extra", label: t("models.editModeExtra", "Extra") },
+  ];
+
+  return (
+    <div className="mt-4 border-border border-t pt-4">
+      <div className="text-muted-foreground mb-2 text-[11px] font-medium uppercase tracking-wider">
+        Editing style
+      </div>
+      <div className="border-border bg-secondary/40 flex rounded-lg border p-0.5">
+        {modes.map((m) => (
+          <button
+            key={m.key}
+            type="button"
+            onClick={() => onChange(m.key)}
+            className={cn(
+              "flex-1 rounded-[6px] px-3 py-1.5 text-center text-[12.5px] font-medium transition-colors",
+              mode === m.key
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

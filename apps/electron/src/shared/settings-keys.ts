@@ -1,4 +1,5 @@
 export const SETTINGS_KEYS = {
+  editMode: "edit_mode",
   hotkey: "hotkey",
   hotkeyMode: "hotkey_mode",
   language: "language",
