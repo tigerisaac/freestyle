@@ -9,6 +9,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        ink: "bg-foreground text-background hover:bg-foreground/90 [a]:hover:bg-foreground/90",
         outline:
           "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         secondary:
@@ -45,6 +46,7 @@ function Button({
   variant = "default",
   size = "default",
   asChild = false,
+  type,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
@@ -57,6 +59,10 @@ function Button({
       data-slot="button"
       data-variant={variant}
       data-size={size}
+      // Default to type="button" so a Button inside a <form> never submits it
+      // unintentionally. Explicit type="submit" still wins. When rendering
+      // asChild, defer the type entirely to the child element.
+      type={asChild ? type : (type ?? "button")}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     />

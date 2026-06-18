@@ -1,3 +1,4 @@
+import { Button } from "@renderer/components/ui/button";
 import type { AvailableModel } from "@renderer/lib/models";
 import { cn, ON_DEVICE_PHRASE } from "@renderer/lib/utils";
 import {
@@ -11,6 +12,7 @@ import {
 import { useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 
+import { CleanupIntensityCard } from "./cleanup-intensity";
 import { MlxWarmingDialog } from "./mlx-memory-section";
 import { ConfirmDialog, type ModalState, ModelModal } from "./model-modal";
 import { Eyebrow, PageHeader, PageShell } from "./page-chrome";
@@ -155,6 +157,18 @@ export default function ModelsPage(): React.JSX.Element {
             showMlxWarming ? () => setWarmingOpen(true) : undefined
           }
         />
+
+        {m.llmCleanup && (
+          <CleanupIntensityCard
+            intensity={m.cleanupIntensity}
+            customPrompt={m.cleanupCustomPrompt}
+            customPromptDirty={m.customPromptDirty}
+            savingCustomPrompt={m.savingCustomPrompt}
+            onIntensityChange={m.setCleanupIntensity}
+            onCustomPromptChange={m.setCleanupCustomPrompt}
+            onSaveCustomPrompt={m.saveCleanupCustomPrompt}
+          />
+        )}
 
         <KeysSection
           apiKeys={m.apiKeys}
@@ -372,22 +386,26 @@ function KeyRow({
           invalid ? "opacity-100" : "opacity-0 group-hover:opacity-100",
         )}
       >
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={onEdit}
-          className="text-muted-foreground hover:text-foreground hover:bg-secondary rounded p-1.5"
+          className="text-muted-foreground hover:text-foreground"
+          aria-label="Update API key"
           title="Update API key"
         >
-          <Pencil size={14} />
-        </button>
-        <button
-          type="button"
+          <Pencil />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={onDelete}
-          className="text-muted-foreground hover:text-destructive hover:bg-secondary rounded p-1.5"
+          className="text-muted-foreground hover:text-destructive"
+          aria-label="Delete provider"
           title="Delete provider"
         >
-          <Trash2 size={14} />
-        </button>
+          <Trash2 />
+        </Button>
       </div>
     </div>
   );
