@@ -1,10 +1,11 @@
 import {
   cleanupCustomPromptSchema,
   cleanupIntensitySchema,
+  disabledPluginsSettingSchema,
   localLlmConfigSchema,
   pluginsSettingSchema,
   settingValueSchema,
-} from "@freestyle/validations";
+} from "@freestyle-voice/validations";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { getDb } from "../lib/db.js";
@@ -63,6 +64,17 @@ const settings = new Hono()
       const parsed = pluginsSettingSchema.safeParse(parsedJson);
       if (!parsed.success) {
         return c.json({ error: "Invalid plugins setting" }, 400);
+      }
+    } else if (key === "disabled_plugins") {
+      let parsedJson: unknown;
+      try {
+        parsedJson = JSON.parse(body.value);
+      } catch {
+        return c.json({ error: "Invalid disabled_plugins setting" }, 400);
+      }
+      const parsed = disabledPluginsSettingSchema.safeParse(parsedJson);
+      if (!parsed.success) {
+        return c.json({ error: "Invalid disabled_plugins setting" }, 400);
       }
     }
 

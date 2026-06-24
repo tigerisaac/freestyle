@@ -4,10 +4,12 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 
 const workspaceAliases = {
-  "@freestyle/sdk": resolve("../../packages/sdk/src/index.ts"),
-  "@freestyle/server": resolve("../server/src/index.ts"),
-  "@freestyle/utils": resolve("../../packages/utils/src/index.ts"),
-  "@freestyle/validations": resolve("../../packages/validations/src/index.ts"),
+  "freestyle-voice": resolve("../../packages/sdk/src/index.ts"),
+  "@freestyle-voice/server": resolve("../server/src/index.ts"),
+  "@freestyle-voice/utils": resolve("../../packages/utils/src/index.ts"),
+  "@freestyle-voice/validations": resolve(
+    "../../packages/validations/src/index.ts",
+  ),
 };
 
 export default defineConfig({
@@ -27,7 +29,16 @@ export default defineConfig({
       },
     },
   },
-  preload: {},
+  preload: {
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve("src/preload/index.ts"),
+          "plugin-bridge": resolve("src/preload/plugin-bridge.ts"),
+        },
+      },
+    },
+  },
   renderer: {
     define: {
       "process.platform": JSON.stringify(process.platform),
@@ -36,6 +47,7 @@ export default defineConfig({
       alias: {
         ...workspaceAliases,
         "@renderer": resolve("src/renderer/src"),
+        "@shared": resolve("src/shared"),
       },
     },
     plugins: [react(), tailwindcss()],

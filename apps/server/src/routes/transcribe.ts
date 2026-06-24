@@ -1,4 +1,4 @@
-import { createAppLogger } from "@freestyle/utils";
+import { createAppLogger } from "@freestyle-voice/utils";
 import { Hono } from "hono";
 import { getDb, readSetting } from "../lib/db.js";
 import { applyDictionaryReplacements } from "../lib/dictionary-replacements.js";
@@ -70,6 +70,12 @@ const transcribeRoute = new Hono().post("/", async (c) => {
   if (audioData.length === 0) {
     return c.json({ error: "Empty audio data" }, 400);
   }
+
+  log.debug(
+    `received audio: ${audioData.length} bytes, header=${String.fromCharCode(
+      ...audioData.slice(0, 4),
+    )} contentType=${contentType.slice(0, 40)}`,
+  );
 
   const appContext = decodeAppContext(c.req.header("x-app-context"));
 
@@ -273,6 +279,7 @@ const transcribeRoute = new Hono().post("/", async (c) => {
       cleaned: "",
       model: defaults.voice.model_id,
       durationMs,
+      audioDurationMs,
     });
   }
 
@@ -373,6 +380,11 @@ const transcribeRoute = new Hono().post("/", async (c) => {
     model: voiceModel,
     provider_category: routeVoiceProviderCategory(voiceProvider),
     durationMs,
+    audioDurationMs,
+    llmModel: pp.llmModel,
+    inputTokens: pp.inputTokens,
+    outputTokens: pp.outputTokens,
+    costUsd: pp.costUsd,
   });
 });
 

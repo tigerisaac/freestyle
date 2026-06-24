@@ -56,9 +56,9 @@ import {
   startServer as startFreestyleServer,
   stopMlxServer,
   stopWhisperServer,
-} from "@freestyle/server";
-import { createAppLogger, enableFileLogging } from "@freestyle/utils";
-import { serverUrlSchema } from "@freestyle/validations";
+} from "@freestyle-voice/server";
+import { createAppLogger, enableFileLogging } from "@freestyle-voice/utils";
+import { serverUrlSchema } from "@freestyle-voice/validations";
 import {
   app,
   BrowserWindow,
@@ -97,11 +97,23 @@ import {
 import {
   plugins as appPlugins,
   FreestyleEventType,
+  fetchCatalog,
+  fetchPluginSettings,
   initAppPlugins,
+  installPlugin,
   OutputMode,
   PipelineStage,
   parseAppContext,
+  reloadAppPlugins,
+  setPluginEnabled,
+  uninstallPlugin,
 } from "./plugins/index";
+import {
+  initPluginUiHost,
+  refreshPluginUi,
+  registerPluginUiPrivileges,
+} from "./plugins/ui-host";
+import type { BridgeConfig } from "./plugins/view-manager";
 
 const log = createAppLogger("electron");
 const hotkeyLog = createAppLogger("hotkey");
@@ -241,11 +253,13 @@ function getServerBaseUrl(): string {
  * underlying init is idempotent, so repeated calls are harmless.
  */
 function initPluginsForServer(): void {
-  void initAppPlugins({
-    baseUrl: getServerBaseUrl(),
-    token: getServerToken(),
-    directory: app.getPath("userData"),
-  });
+  void initAppPlugins(getServerTarget());
+  // Refresh UI plugin discovery now that the server (and `plugins` setting) is
+  // reachable. No-op if the settings window hasn't been created yet.
+  void getPluginDiscoverySources().then(
+    ({ pluginsSetting, userDataDir, disabledPlugins }) =>
+      refreshPluginUi(pluginsSetting, userDataDir, disabledPlugins),
+  );
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -287,6 +301,10 @@ protocol.registerSchemesAsPrivileged([
     },
   },
 ]);
+
+// Register the freestyle-plugin:// scheme that serves plugin UI assets. Must
+// also run before app.ready.
+registerPluginUiPrivileges();
 
 function registerAppProtocol(): void {
   protocol.handle("app", (request) => {
@@ -597,8 +615,106 @@ function createSettingsWindow(initialPath?: string): void {
     }
   }
 
+  // Wire the plugin UI host (asset protocol, view manager, IPC) to this window
+  // and do an initial plugin discovery scan.
+  initPluginUiHost({
+    window: settingsWindow,
+    getBridgeConfig: getPluginBridgeConfig,
+    getDiscoverySources: getPluginDiscoverySources,
+    setPluginEnabled: async (specifier, enabled) => {
+      // Persist + reload the server's registry, then rebuild the app-host
+      // registry so app-side hooks for this plugin start/stop immediately.
+      await setPluginEnabled(getServerTarget(), specifier, enabled);
+      await reloadAppPlugins(getServerTarget());
+    },
+    getCatalog: () => fetchCatalog(getServerTarget()),
+    installPlugin: async (npmName, version) => {
+      await installPlugin(getServerTarget(), npmName, version);
+      await reloadAppPlugins(getServerTarget());
+    },
+    uninstallPlugin: async (specifier) => {
+      await uninstallPlugin(getServerTarget(), specifier);
+      await reloadAppPlugins(getServerTarget());
+    },
+    onAction: handlePluginAction,
+  });
+  void getPluginDiscoverySources().then(
+    ({ pluginsSetting, userDataDir, disabledPlugins }) =>
+      refreshPluginUi(pluginsSetting, userDataDir, disabledPlugins),
+  );
+
   const startPath = !onboardingDone ? "/onboarding" : (initialPath ?? "/today");
   settingsWindow.loadURL(getDashboardURL(startPath));
+}
+
+/** The (possibly remote) server target for plugin settings/discovery. */
+function getServerTarget(): {
+  baseUrl: string;
+  token?: string;
+  directory: string;
+  remote: boolean;
+} {
+  const token = getServerToken();
+  return {
+    baseUrl: getServerBaseUrl(),
+    ...(token ? { token } : {}),
+    directory: app.getPath("userData"),
+    remote: getServerUrl() !== "",
+  };
+}
+
+/** Bridge config (server URL/token) injected into plugin UI frames. */
+function getPluginBridgeConfig(): BridgeConfig {
+  const token = getServerToken();
+  return {
+    serverUrl: getServerBaseUrl(),
+    ...(token ? { token } : {}),
+  };
+}
+
+/**
+ * Resolve the `plugins` setting + disabled set (over HTTP, so a remote server
+ * works too) plus the user-data dir for UI plugin discovery.
+ */
+async function getPluginDiscoverySources(): Promise<{
+  pluginsSetting: string | undefined;
+  userDataDir: string;
+  disabledPlugins: ReadonlySet<string>;
+}> {
+  const { pluginsSetting, disabled } = await fetchPluginSettings(
+    getServerTarget(),
+  );
+  return {
+    pluginsSetting,
+    userDataDir: app.getPath("userData"),
+    disabledPlugins: disabled,
+  };
+}
+
+/** Perform a host action requested by a plugin UI page over the bridge. */
+function handlePluginAction(
+  channel: keyof import("freestyle-voice").HostActions,
+  payload: unknown,
+): void {
+  switch (channel) {
+    case "copy": {
+      const { text } = payload as { text: string };
+      if (text) clipboard.writeText(text);
+      break;
+    }
+    case "toast": {
+      const { message } = payload as { message: string };
+      if (message && Notification.isSupported()) {
+        new Notification({ title: "Freestyle", body: message }).show();
+      }
+      break;
+    }
+    case "navigate": {
+      const { to } = payload as { to: string };
+      settingsWindow?.webContents.send("plugin:navigate", to);
+      break;
+    }
+  }
 }
 
 /**

@@ -366,8 +366,42 @@
       "vocabulary": "Vocabulary",
       "formats": "Formats",
       "models": "Models",
+      "plugins": "Plugins",
       "settings": "Settings",
       "help": "Help"
+    }
+  },
+  "plugins": {
+    "titleAccent": "Plugins",
+    "subtitle": "Install plugins to add features. Each runs in the dictation pipeline and can ship its own page.",
+    "tabs": {
+      "installed": "Installed",
+      "browse": "Browse"
+    },
+    "loading": "Loading plugins…",
+    "emptyTitle": "No plugins yet",
+    "empty": "Install a plugin to add features. Browse the available ones or add your own.",
+    "localBadge": "Local",
+    "missingBadge": "Missing",
+    "missingHint": "Listed but not installed on disk. Uninstall to remove it.",
+    "open": "Open",
+    "install": "Install",
+    "installing": "Installing…",
+    "uninstall": "Uninstall plugin",
+    "enablePlugin": "Enable plugin",
+    "disablePlugin": "Disable plugin",
+    "searchPlaceholder": "Search plugins…",
+    "noResults": "No plugins match your search.",
+    "detail": {
+      "title": "Details",
+      "back": "Plugins",
+      "notFound": "This plugin is no longer installed.",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "noReadme": "This plugin doesn't include a README."
+    },
+    "browse": {
+      "error": "Couldn't load the plugin catalog. Check your connection and try again."
     }
   }
 }

@@ -10,8 +10,34 @@ import type {
   PluginPreset,
 } from "./plugin.js";
 import { type HookFailure, PluginRegistry } from "./registry.js";
+import { pluginSlug } from "./ui.js";
 
 const LOCAL_PLUGIN_EXTS = [".ts", ".js", ".mjs"];
+
+/**
+ * Resolve an installed plugin package living under `<localDir>/<slug>/` to the
+ * absolute path of its entry module (`package.json#main`, default `index.js`).
+ * Returns `null` when no such package folder exists. The folder name is the
+ * package's {@link pluginSlug}, matching how the installer lays packages out.
+ */
+export function resolveLocalPackage(
+  localDir: string,
+  specifier: string,
+): string | null {
+  const pkgDir = path.join(localDir, pluginSlug(specifier));
+  const pkgJsonPath = path.join(pkgDir, "package.json");
+  let main = "index.js";
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8")) as {
+      main?: unknown;
+    };
+    if (typeof pkg.main === "string" && pkg.main) main = pkg.main;
+  } catch {
+    return null;
+  }
+  const entry = path.join(pkgDir, main);
+  return fs.existsSync(entry) ? entry : null;
+}
 
 /**
  * List loadable plugin files in a directory, sorted by name (stable load order).
@@ -97,7 +123,13 @@ export async function loadPlugins(
   const resolved: Plugin[] = [];
 
   for (const entry of options.entries ?? []) {
-    const factory = await importFactory(entry.specifier, logger);
+    // Resolve installed packages that live in the local plugins dir (added to
+    // the `plugins` setting by name, but not present in node_modules) to their
+    // on-disk folder before importing.
+    const localPath = options.localDir
+      ? resolveLocalPackage(options.localDir, entry.specifier)
+      : null;
+    const factory = await importFactory(localPath ?? entry.specifier, logger);
     if (factory) {
       collect(
         resolved,
@@ -177,7 +209,14 @@ async function importFactory(
         : specifier;
     mod = (await dynamicImport(url)) as PluginModule;
   } catch (err) {
-    logger.error(`failed to import plugin "${specifier}": ${errMessage(err)}`);
+    // An unresolved specifier (e.g. a default plugin that isn't installed in
+    // this build) is an expected, non-fatal condition — warn rather than error.
+    const message = `failed to import plugin "${specifier}": ${errMessage(err)}`;
+    if (isModuleNotFound(err)) {
+      logger.warn(message);
+    } else {
+      logger.error(message);
+    }
     return null;
   }
 
@@ -190,6 +229,16 @@ async function importFactory(
 
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Whether an import error is a "module not found" (vs a real load error). */
+function isModuleNotFound(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return (
+    code === "ERR_MODULE_NOT_FOUND" ||
+    code === "MODULE_NOT_FOUND" ||
+    code === "ERR_PACKAGE_PATH_NOT_EXPORTED"
+  );
 }
 
 /**

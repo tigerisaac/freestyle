@@ -3,6 +3,11 @@ import type {
   ActiveAudioPlaybackMode,
   AudioPlaybackMode,
 } from "../shared/audio-playback";
+import type {
+  PluginCatalogEntry,
+  PluginInfo,
+  PluginViewBounds,
+} from "../shared/plugins";
 
 declare global {
   interface Window {
@@ -121,6 +126,28 @@ declare global {
       onMicActivityChanged: (
         callback: (state: "active" | "inactive" | "unknown") => void,
       ) => () => void;
+      // Plugins
+      listPlugins: () => Promise<PluginInfo[]>;
+      refreshPlugins: () => Promise<PluginInfo[]>;
+      setPluginEnabled: (
+        specifier: string,
+        enabled: boolean,
+      ) => Promise<PluginInfo[]>;
+      getPluginCatalog: () => Promise<{ plugins: PluginCatalogEntry[] }>;
+      installPlugin: (
+        npmName: string,
+        version?: string,
+      ) => Promise<PluginInfo[]>;
+      uninstallPlugin: (specifier: string) => Promise<PluginInfo[]>;
+      showPluginView: (
+        slug: string,
+        pageId: string,
+        bounds: PluginViewBounds,
+        tokens?: Record<string, string>,
+      ) => Promise<boolean>;
+      setPluginViewBounds: (bounds: PluginViewBounds) => void;
+      hidePluginView: () => void;
+      onPluginNavigate: (callback: (to: string) => void) => () => void;
     };
   }
 }

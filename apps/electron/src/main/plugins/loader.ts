@@ -1,9 +1,18 @@
 import path from "node:path";
-import type { HookFailure, PluginEntry } from "@freestyle/sdk";
-import { loadPlugins, type PluginRegistry } from "@freestyle/sdk";
-import type { AppType } from "@freestyle/server";
-import { createAppLogger } from "@freestyle/utils";
-import { parsePluginsSetting, pluginEntryParts } from "@freestyle/validations";
+import type { AppType } from "@freestyle-voice/server";
+import {
+  installPackage,
+  resolvePackage,
+  uninstallPackage,
+} from "@freestyle-voice/server";
+import { createAppLogger } from "@freestyle-voice/utils";
+import {
+  parseDisabledPlugins,
+  parsePluginsSetting,
+  pluginEntryParts,
+} from "@freestyle-voice/validations";
+import type { HookFailure, PluginEntry } from "freestyle-voice";
+import { loadPlugins, type PluginRegistry } from "freestyle-voice";
 import { hc } from "hono/client";
 import { buildPluginContext, type SettingsSnapshot } from "./context.js";
 
@@ -19,6 +28,12 @@ export interface ServerTarget {
   token?: string;
   /** Electron's local user-data directory; app-host plugins live under it. */
   directory: string;
+  /**
+   * Whether the server is a configured *remote* one. When false, the embedded
+   * server shares this app's user-data dir, so a server-side install already
+   * materializes the package for the desktop too (no local mirror needed).
+   */
+  remote: boolean;
 }
 
 /**
@@ -34,9 +49,10 @@ export async function loadAppPlugins(
 ): Promise<PluginRegistry> {
   const snapshot = await fetchSettings(target);
 
-  const entries: PluginEntry[] = parsePluginsSetting(snapshot.plugins).map(
-    (entry) => pluginEntryParts(entry),
-  );
+  const disabled = new Set(parseDisabledPlugins(snapshot.disabled_plugins));
+  const entries: PluginEntry[] = parsePluginsSetting(snapshot.plugins)
+    .map((entry) => pluginEntryParts(entry))
+    .filter((entry) => !disabled.has(entry.specifier));
   const localDir = path.join(target.directory, "plugins");
 
   return loadPlugins({
@@ -47,6 +63,126 @@ export async function loadAppPlugins(
     logger: log,
     onError: reportHookFailure,
   });
+}
+
+/**
+ * Fetch the `plugins` list and the set of disabled specifiers over HTTP. Used
+ * by the UI plugin discovery (which needs the same data as hook loading,
+ * including for a remote server).
+ */
+export async function fetchPluginSettings(
+  target: ServerTarget,
+): Promise<{ pluginsSetting: string | undefined; disabled: Set<string> }> {
+  const snapshot = await fetchSettings(target);
+  return {
+    pluginsSetting: snapshot.plugins,
+    disabled: new Set(parseDisabledPlugins(snapshot.disabled_plugins)),
+  };
+}
+
+/**
+ * Persist a plugin's enabled state by updating the `disabled_plugins` setting
+ * over HTTP. Adding to the list disables the plugin; removing re-enables it.
+ */
+export async function setPluginEnabled(
+  target: ServerTarget,
+  specifier: string,
+  enabled: boolean,
+): Promise<void> {
+  const { disabled } = await fetchPluginSettings(target);
+  if (enabled) disabled.delete(specifier);
+  else disabled.add(specifier);
+
+  const client = hc<AppType>(target.baseUrl, {
+    headers: target.token ? { Authorization: `Bearer ${target.token}` } : {},
+  });
+  await client.api.settings[":key"].$put(
+    {
+      param: { key: "disabled_plugins" },
+      json: { value: JSON.stringify([...disabled]) },
+    },
+    { init: { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) } },
+  );
+
+  // Ask the server to reload its own plugin registry so the change takes effect
+  // on the server side too (it's a separate process, possibly remote). The
+  // caller reloads the app-host registry separately.
+  try {
+    await client.api.plugins.reload.$post(
+      {},
+      { init: { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) } },
+    );
+  } catch (err) {
+    log.warn(
+      `server plugin reload failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+const INSTALL_TIMEOUT_MS = 60_000;
+
+/** Fetch the installable plugin catalog from the server. */
+export async function fetchCatalog(target: ServerTarget): Promise<unknown> {
+  const client = hc<AppType>(target.baseUrl, {
+    headers: target.token ? { Authorization: `Bearer ${target.token}` } : {},
+  });
+  const res = await client.api.plugins.catalog.$get(
+    {},
+    { init: { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) } },
+  );
+  if (!res.ok) throw new Error(`catalog fetch failed: HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Install a plugin by npm name. The server installs into its own plugins dir
+ * and updates the `plugins` setting; for a *remote* server we additionally
+ * materialize the package into this desktop's plugins dir so app-side hooks and
+ * the UI page load locally.
+ */
+export async function installPlugin(
+  target: ServerTarget,
+  npmName: string,
+  version?: string,
+): Promise<void> {
+  const client = hc<AppType>(target.baseUrl, {
+    headers: target.token ? { Authorization: `Bearer ${target.token}` } : {},
+  });
+  const res = await client.api.plugins.install.$post(
+    { json: { npmName, ...(version ? { version } : {}) } },
+    { init: { signal: AbortSignal.timeout(INSTALL_TIMEOUT_MS) } },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `install failed: HTTP ${res.status}`);
+  }
+
+  if (target.remote) {
+    const resolved = await resolvePackage(npmName, version);
+    await installPackage(path.join(target.directory, "plugins"), resolved);
+  }
+}
+
+/** Uninstall a plugin by specifier (server +, for remote configs, desktop). */
+export async function uninstallPlugin(
+  target: ServerTarget,
+  specifier: string,
+): Promise<void> {
+  const client = hc<AppType>(target.baseUrl, {
+    headers: target.token ? { Authorization: `Bearer ${target.token}` } : {},
+  });
+  const res = await client.api.plugins.uninstall.$post(
+    { json: { specifier } },
+    { init: { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) } },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `uninstall failed: HTTP ${res.status}`);
+  }
+
+  if (target.remote) {
+    await uninstallPackage(path.join(target.directory, "plugins"), specifier);
+  }
 }
 
 /**

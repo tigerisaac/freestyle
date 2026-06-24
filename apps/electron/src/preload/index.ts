@@ -5,6 +5,11 @@ import type {
   AudioPlaybackMode,
 } from "../shared/audio-playback";
 import { getDefaultHotkey } from "../shared/hotkey-defaults";
+import type {
+  PluginCatalogEntry,
+  PluginInfo,
+  PluginViewBounds,
+} from "../shared/plugins";
 
 // Custom APIs for renderer
 const api = {
@@ -260,6 +265,37 @@ const api = {
     ): void => callback(state);
     ipcRenderer.on("mic:activity-changed", handler);
     return () => ipcRenderer.removeListener("mic:activity-changed", handler);
+  },
+
+  // --- Plugins ---
+  listPlugins: (): Promise<PluginInfo[]> => ipcRenderer.invoke("plugins:list"),
+  refreshPlugins: (): Promise<PluginInfo[]> =>
+    ipcRenderer.invoke("plugins:refresh"),
+  setPluginEnabled: (
+    specifier: string,
+    enabled: boolean,
+  ): Promise<PluginInfo[]> =>
+    ipcRenderer.invoke("plugins:set-enabled", specifier, enabled),
+  getPluginCatalog: (): Promise<{ plugins: PluginCatalogEntry[] }> =>
+    ipcRenderer.invoke("plugins:catalog"),
+  installPlugin: (npmName: string, version?: string): Promise<PluginInfo[]> =>
+    ipcRenderer.invoke("plugins:install", npmName, version),
+  uninstallPlugin: (specifier: string): Promise<PluginInfo[]> =>
+    ipcRenderer.invoke("plugins:uninstall", specifier),
+  showPluginView: (
+    slug: string,
+    pageId: string,
+    bounds: PluginViewBounds,
+    tokens?: Record<string, string>,
+  ): Promise<boolean> =>
+    ipcRenderer.invoke("plugin-view:show", slug, pageId, bounds, tokens),
+  setPluginViewBounds: (bounds: PluginViewBounds): void =>
+    ipcRenderer.send("plugin-view:set-bounds", bounds),
+  hidePluginView: (): void => ipcRenderer.send("plugin-view:hide"),
+  onPluginNavigate: (callback: (to: string) => void): (() => void) => {
+    const handler = (_: unknown, to: string): void => callback(to);
+    ipcRenderer.on("plugin:navigate", handler);
+    return () => ipcRenderer.removeListener("plugin:navigate", handler);
   },
 };
 

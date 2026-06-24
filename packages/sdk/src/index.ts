@@ -1,4 +1,9 @@
 export { type AppContextPayload, parseAppContext } from "./app-context.js";
+export type {
+  FreestyleBridge,
+  FreestyleResponse,
+  HostActions,
+} from "./bridge.js";
 export type { PluginConfig } from "./config.js";
 export {
   type BaseLogger,
@@ -26,6 +31,7 @@ export {
   type LoadPluginsOptions,
   loadPlugins,
   type PluginEntry,
+  resolveLocalPackage,
 } from "./loader.js";
 export { sortPlugins } from "./order.js";
 export { OutputMode } from "./output.js";
@@ -44,3 +50,11 @@ export {
   type PluginRegistryOptions,
 } from "./registry.js";
 export { type TextTransformer, transform } from "./transform.js";
+export {
+  type PluginContributes,
+  type PluginManifest,
+  type PluginUIPage,
+  parsePluginIcon,
+  parsePluginPages,
+  pluginSlug,
+} from "./ui.js";

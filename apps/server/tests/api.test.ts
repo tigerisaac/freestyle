@@ -63,10 +63,11 @@ describe("Root & Health", () => {
 // ---------------------------------------------------------------------------
 
 describe("Settings", () => {
-  it("GET /api/settings returns empty object initially", async () => {
+  it("GET /api/settings is empty on a fresh database", async () => {
     const res = await req("/api/settings");
     expect(res.status).toBe(200);
     const data = await res.json();
+    // Nothing is seeded; plugins are installed explicitly via the catalog.
     expect(data).toEqual({});
   });
 

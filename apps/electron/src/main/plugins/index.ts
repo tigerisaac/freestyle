@@ -1,4 +1,4 @@
-import { PluginRegistry } from "@freestyle/sdk";
+import { PluginRegistry } from "freestyle-voice";
 import { loadAppPlugins, type ServerTarget } from "./loader.js";
 
 export {
@@ -6,8 +6,15 @@ export {
   OutputMode,
   PipelineStage,
   parseAppContext,
-} from "@freestyle/sdk";
+} from "freestyle-voice";
 export type { ServerTarget } from "./loader.js";
+export {
+  fetchCatalog,
+  fetchPluginSettings,
+  installPlugin,
+  setPluginEnabled,
+  uninstallPlugin,
+} from "./loader.js";
 
 let registry: PluginRegistry = new PluginRegistry();
 let initialized = false;
@@ -26,6 +33,21 @@ export async function initAppPlugins(target: ServerTarget): Promise<void> {
   } catch {
     registry = new PluginRegistry();
   }
+}
+
+/**
+ * Rebuild the app-host plugin registry from the current settings. Called when a
+ * plugin is enabled/disabled so its app-side hooks (e.g. `beforeOutput`) start
+ * or stop firing immediately, without an app restart.
+ */
+export async function reloadAppPlugins(target: ServerTarget): Promise<void> {
+  const previous = registry;
+  try {
+    registry = await loadAppPlugins(target);
+  } catch {
+    registry = new PluginRegistry();
+  }
+  await previous.dispose().catch(() => {});
 }
 
 /** The active registry. Returns an empty one before init runs. */
