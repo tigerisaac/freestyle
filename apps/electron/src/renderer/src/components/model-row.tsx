@@ -34,7 +34,7 @@ export function ProviderAvatar({
       <AvatarImage
         src={providerLogoUrl(providerId)}
         alt=""
-        className="p-[2px] dark:invert dark:group-data-[variant=default]/button:invert-0"
+        className="p-[2px] dark:invert"
       />
       <AvatarFallback className="text-[8px] font-semibold uppercase leading-none">
         {fallback}

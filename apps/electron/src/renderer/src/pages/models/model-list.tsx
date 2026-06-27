@@ -638,7 +638,7 @@ function Chip({
       variant={on ? "default" : "outline"}
       size="xs"
       onClick={onClick}
-      className="gap-1.5 rounded-full"
+      className={cn("gap-1.5 rounded-full", mark && "pl-1")}
     >
       {mark && (
         <ProviderAvatar
