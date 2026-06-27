@@ -1,4 +1,14 @@
 # Changelog
+## 0.3.1
+
+### New Features ✨
+
+- Add cloud usage display to sidebar and today page by @MathurAditya724 in [#335](https://github.com/freestyle-voice/freestyle/pull/335)
+
+### Bug Fixes 🐛
+
+- Provider logo visibility on selected filter pill and reduce pill left padding by @MathurAditya724 in [ed970d4a](https://github.com/freestyle-voice/freestyle/commit/ed970d4a1eb2f7a2491dd741b70eff3de35bc7af)
+
 ## 0.3.0
 
 ### New Features ✨
