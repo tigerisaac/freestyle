@@ -1,4 +1,16 @@
 # Changelog
+## 0.3.0
+
+### New Features ✨
+
+- Add plugin middleware support with built-in auth and cloud-sync plugins by @MathurAditya724 in [#329](https://github.com/freestyle-voice/freestyle/pull/329)
+- Sync cleanup preferences to Freestyle Cloud by @MathurAditya724 in [#328](https://github.com/freestyle-voice/freestyle/pull/328)
+
+### Other
+
+- [Fix] Register all privileged schemes in one call by @matteo8p in [#331](https://github.com/freestyle-voice/freestyle/pull/331)
+- Ignore npm format warnings by @matteo8p in [#330](https://github.com/freestyle-voice/freestyle/pull/330)
+
 ## 0.2.1
 
 ### New Features ✨
