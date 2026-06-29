@@ -16,13 +16,101 @@ import Darwin
 var fnIsDown = false
 var lastModifierFlags: NSEvent.ModifierFlags = []
 
-// Mouse buttons to suppress (passed as comma-separated CLI args)
-let suppressedMouseButtons = Set(
-    CommandLine.arguments.dropFirst()
-        .flatMap { $0.split(separator: ",") }
-        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
-)
+/// Modifier + key hotkeys (e.g. Option+U) are swallowed so macOS dead keys do not
+/// reach the foreground app. Modifier-only hotkeys (e.g. RightOption) are not.
+struct ParsedHotkey {
+    var requireControl = false
+    var requireOption = false
+    var requireShift = false
+    var requireCommand = false
+    var requireFn = false
+    var targetKeyCode: UInt16?
+
+    var hasCompoundKey: Bool { targetKeyCode != nil }
+}
+
+func parseCLIArgs() -> (hotkey: String?, mouseButtons: Set<String>) {
+    var hotkey: String?
+    var mouseButtons = Set<String>()
+
+    for arg in CommandLine.arguments.dropFirst() {
+        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { continue }
+
+        if trimmed.contains("+") || isStandaloneHotkeyToken(trimmed) {
+            hotkey = trimmed
+            continue
+        }
+
+        for part in trimmed.split(separator: ",") {
+            let name = String(part).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty {
+                mouseButtons.insert(name)
+            }
+        }
+    }
+
+    return (hotkey, mouseButtons)
+}
+
+func isStandaloneHotkeyToken(_ token: String) -> Bool {
+    let lower = token.lowercased()
+    if lower.hasPrefix("mousebutton") { return false }
+    if lower == "fn" || lower == "globe" { return true }
+    if lower.hasPrefix("right") { return true }
+    if lower.hasPrefix("f"), let n = Int(lower.dropFirst()), (1...12).contains(n) { return true }
+    return nameToKeyCode(token) != nil
+}
+
+func parseHotkey(_ hotkey: String) -> ParsedHotkey {
+    var result = ParsedHotkey()
+
+    for part in hotkey.split(separator: "+") {
+        let token = part.trimmingCharacters(in: .whitespacesAndNewlines)
+        if token.isEmpty { continue }
+
+        switch token.lowercased() {
+        case "control", "ctrl", "commandorcontrol", "cmdorctrl":
+            result.requireControl = true
+        case "alt", "option":
+            result.requireOption = true
+        case "shift":
+            result.requireShift = true
+        case "command", "cmd", "meta", "super", "win":
+            result.requireCommand = true
+        case "fn", "globe":
+            result.requireFn = true
+        case "rightalt", "rightoption", "rightcommand",
+             "rightcontrol", "rightctrl", "rightshift", "rightsuper", "rightwin", "rightmeta":
+            break
+        default:
+            if let code = nameToKeyCode(token) {
+                result.targetKeyCode = code
+            }
+        }
+    }
+
+    return result
+}
+
+func eventMatchesSuppressibleHotkey(_ event: CGEvent, config: ParsedHotkey) -> Bool {
+    guard config.hasCompoundKey else { return false }
+
+    let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+    guard keyCode == config.targetKeyCode else { return false }
+
+    let flags = event.flags
+    if flags.contains(.maskControl) != config.requireControl { return false }
+    if flags.contains(.maskAlternate) != config.requireOption { return false }
+    if flags.contains(.maskShift) != config.requireShift { return false }
+    if flags.contains(.maskCommand) != config.requireCommand { return false }
+    if flags.contains(.maskSecondaryFn) != config.requireFn { return false }
+    return true
+}
+
+let cliArgs = parseCLIArgs()
+let suppressedMouseButtons = cliArgs.mouseButtons
+let suppressHotkey = cliArgs.hotkey.map(parseHotkey)
 
 let rightModifiers: [(UInt16, NSEvent.ModifierFlags, String)] = [
     (61, .option, "RightOption"),
@@ -129,6 +217,44 @@ func keyCodeToName(_ code: UInt16) -> String? {
     case 111: return "F12"
     default: return nil
     }
+}
+
+func nameToKeyCode(_ name: String) -> UInt16? {
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty { return nil }
+
+    let lower = trimmed.lowercased()
+    if lower == "space" { return 49 }
+    if lower == "return" || lower == "enter" { return 36 }
+    if lower == "escape" || lower == "esc" { return 53 }
+    if lower == "tab" { return 48 }
+    if lower == "backspace" || lower == "delete" { return 51 }
+    if lower == "forwarddelete" { return 117 }
+    if lower == "up" { return 126 }
+    if lower == "down" { return 125 }
+    if lower == "left" { return 123 }
+    if lower == "right" { return 124 }
+
+    if lower.hasPrefix("f"), let number = Int(lower.dropFirst()), (1...12).contains(number) {
+        let fKeyCodes: [UInt16] = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111]
+        return fKeyCodes[number - 1]
+    }
+
+    if trimmed.count == 1, let upper = trimmed.uppercased().first {
+        for code: UInt16 in 0...128 {
+            if keyCodeToName(code)?.uppercased() == String(upper) {
+                return code
+            }
+        }
+    }
+
+    for code: UInt16 in 0...128 {
+        if keyCodeToName(code)?.lowercased() == lower {
+            return code
+        }
+    }
+
+    return nil
 }
 
 func emitFlagsFromCGEvent(_ flags: CGEventFlags) {
@@ -273,6 +399,10 @@ let keyEventTap = CGEvent.tapCreate(
         // KEY_DOWN is emitted by the NSEvent global monitor above (avoids duplicate events).
         if type == .keyUp {
             emit("KEY_UP:\(name)")
+        }
+
+        if let suppressHotkey, eventMatchesSuppressibleHotkey(event, config: suppressHotkey) {
+            return nil
         }
 
         return Unmanaged.passUnretained(event)

@@ -35,13 +35,23 @@ const BINARY_NAMES: Record<string, string> = {
 
 /**
  * Convert an Electron accelerator to the format expected by the native binary.
- * macOS key listener doesn't take a hotkey arg (it reports all modifier events
- * and the main process filters). Windows and Linux take the hotkey directly.
+ * The native binaries accept Electron-style accelerator format directly.
  */
 function formatHotkeyForBinary(hotkey: string): string {
-  // The native binaries accept Electron-style accelerator format directly
-  // (e.g., "Alt+Space", "CommandOrControl+Shift+F11")
+  // Examples: "Alt+Space", "CommandOrControl+Shift+F11"
   return hotkey;
+}
+
+function normalizeMacKeyName(name: string): string {
+  const aliases: Record<string, string> = {
+    backspace: "delete",
+    del: "delete",
+    enter: "return",
+    esc: "escape",
+  };
+
+  const lower = name.trim().toLowerCase();
+  return aliases[lower] ?? lower;
 }
 
 function isMacroMouseButton(key: string | null): boolean {
@@ -157,10 +167,14 @@ export class NativeKeyListener {
 
     const args: string[] = [];
 
-    // macOS reports all events and main filters; pass mouse buttons only when
-    // they should be suppressed globally. Windows/Linux take the hotkey.
+    // macOS reports all events and main filters; pass the hotkey so compound
+    // shortcuts (e.g. Option+U) are swallowed, plus mouse buttons when needed.
     if (process.platform === "darwin") {
-      args.push(...macMouseSuppressionArgs(this.options.hotkey));
+      args.push(formatHotkeyForBinary(this.options.hotkey));
+      const mouseArgs = macMouseSuppressionArgs(this.options.hotkey);
+      if (mouseArgs.length > 0) {
+        args.push(mouseArgs.join(","));
+      }
     } else {
       args.push(formatHotkeyForBinary(this.options.hotkey));
     }
@@ -363,7 +377,12 @@ export class NativeKeyListener {
   /** Match compound hotkeys like Alt+Space using modifier flags + key events. */
   private handleMacKeyEvent(key: string, down: boolean): void {
     const { modifiers, key: hotkeyKey } = parseHotkeyParts(this.options.hotkey);
-    if (!hotkeyKey || hotkeyKey.toLowerCase() !== key.toLowerCase()) return;
+    if (
+      !hotkeyKey ||
+      normalizeMacKeyName(hotkeyKey) !== normalizeMacKeyName(key)
+    ) {
+      return;
+    }
 
     const allModsMatch = this.areMacModifiersActive(modifiers);
     if (!allModsMatch) return;
