@@ -66,7 +66,7 @@ function compileMacOS() {
     {
       name: "macos-key-listener",
       src: "macos-key-listener.swift",
-      frameworks: ["Cocoa"],
+      frameworks: ["Cocoa", "IOKit"],
     },
     {
       name: "macos-fast-paste",

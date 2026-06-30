@@ -2,19 +2,21 @@
  * macOS Global Key Listener
  *
  * Monitors Globe/Fn key, right-side modifier keys, and extra mouse buttons
- * using native Cocoa/CoreGraphics APIs. Outputs key events to stdout for
+ * using native Cocoa/CoreGraphics/IOKit APIs. Outputs key events to stdout for
  * consumption by the Electron main process via child_process stdio.
  *
  * Compile:
  *   swiftc -O macos-key-listener.swift -o macos-key-listener \
- *     -framework Cocoa
+ *     -framework Cocoa -framework IOKit
  */
 
 import Cocoa
 import Darwin
+import IOKit.hid
 
 var fnIsDown = false
 var lastModifierFlags: NSEvent.ModifierFlags = []
+var mouseButtonStates: [String: Bool] = [:]
 
 /// Modifier + key hotkeys (e.g. Option+U) are swallowed so macOS dead keys do not
 /// reach the foreground app. Modifier-only hotkeys (e.g. RightOption) are not.
@@ -277,14 +279,34 @@ func mouseButtonName(_ buttonNumber: Int) -> String? {
     }
 }
 
+func mouseButtonName(hidUsage: UInt32) -> String? {
+    switch hidUsage {
+    case UInt32(kHIDUsage_Button_4):
+        return "MouseButton4"
+    case UInt32(kHIDUsage_Button_5):
+        return "MouseButton5"
+    default:
+        return nil
+    }
+}
+
+@discardableResult
+func emitMouseButtonState(_ buttonName: String, isDown: Bool) -> Bool {
+    let previousState = mouseButtonStates[buttonName]
+    if previousState != isDown {
+        mouseButtonStates[buttonName] = isDown
+        emit(isDown ? "MOUSE_BUTTON_DOWN:\(buttonName)" : "MOUSE_BUTTON_UP:\(buttonName)")
+    }
+    return suppressedMouseButtons.contains(buttonName)
+}
+
 func emitMouseEvent(_ type: CGEventType, _ event: CGEvent) -> Bool {
     guard type == .otherMouseDown || type == .otherMouseUp else { return false }
 
     let buttonNumber = Int(event.getIntegerValueField(.mouseEventButtonNumber))
     guard let buttonName = mouseButtonName(buttonNumber) else { return false }
 
-    emit(type == .otherMouseDown ? "MOUSE_BUTTON_DOWN:\(buttonName)" : "MOUSE_BUTTON_UP:\(buttonName)")
-    return suppressedMouseButtons.contains(buttonName)
+    return emitMouseButtonState(buttonName, isDown: type == .otherMouseDown)
 }
 
 let mouseEventMask =
@@ -294,7 +316,7 @@ let mouseEventMask =
 var mouseEventTapPort: CFMachPort?
 
 let mouseEventTap = CGEvent.tapCreate(
-    tap: .cgSessionEventTap,
+    tap: .cghidEventTap,
     place: .headInsertEventTap,
     options: .defaultTap,
     eventsOfInterest: CGEventMask(mouseEventMask),
@@ -322,6 +344,45 @@ if let mouseEventTap {
     CGEvent.tapEnable(tap: mouseEventTap, enable: true)
 } else {
     FileHandle.standardError.write("Failed to create mouse event tap\n".data(using: .utf8)!)
+}
+
+let hidMouseDeviceMatching: [String: NSNumber] = [
+    kIOHIDDeviceUsagePageKey: NSNumber(value: Int(kHIDPage_GenericDesktop)),
+    kIOHIDDeviceUsageKey: NSNumber(value: Int(kHIDUsage_GD_Mouse)),
+]
+
+let hidMouseButtonMatches: [CFDictionary] = [
+    [
+        kIOHIDElementUsagePageKey: NSNumber(value: Int(kHIDPage_Button)),
+        kIOHIDElementUsageKey: NSNumber(value: Int(kHIDUsage_Button_4)),
+    ] as CFDictionary,
+    [
+        kIOHIDElementUsagePageKey: NSNumber(value: Int(kHIDPage_Button)),
+        kIOHIDElementUsageKey: NSNumber(value: Int(kHIDUsage_Button_5)),
+    ] as CFDictionary,
+]
+
+var hidMouseManager: IOHIDManager?
+let hidManager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+IOHIDManagerSetDeviceMatching(hidManager, hidMouseDeviceMatching as CFDictionary)
+IOHIDManagerSetInputValueMatchingMultiple(hidManager, hidMouseButtonMatches as CFArray)
+IOHIDManagerRegisterInputValueCallback(hidManager, { _, result, _, value in
+    guard result == kIOReturnSuccess else { return }
+
+    let element = IOHIDValueGetElement(value)
+    guard IOHIDElementGetUsagePage(element) == UInt32(kHIDPage_Button) else { return }
+    guard let buttonName = mouseButtonName(hidUsage: IOHIDElementGetUsage(element)) else { return }
+
+    let isDown = IOHIDValueGetIntegerValue(value) != 0
+    _ = emitMouseButtonState(buttonName, isDown: isDown)
+}, nil)
+IOHIDManagerScheduleWithRunLoop(hidManager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
+
+let hidOpenResult = IOHIDManagerOpen(hidManager, IOOptionBits(kIOHIDOptionsTypeNone))
+if hidOpenResult == kIOReturnSuccess {
+    hidMouseManager = hidManager
+} else {
+    FileHandle.standardError.write("Failed to open HID mouse manager: \(hidOpenResult)\n".data(using: .utf8)!)
 }
 
 guard let monitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: { event in
@@ -437,6 +498,10 @@ signalSource.setEventHandler {
     }
     if let mouseRunLoopSource {
         CFRunLoopRemoveSource(CFRunLoopGetMain(), mouseRunLoopSource, .commonModes)
+    }
+    if let hidMouseManager {
+        IOHIDManagerUnscheduleFromRunLoop(hidMouseManager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
+        IOHIDManagerClose(hidMouseManager, IOOptionBits(kIOHIDOptionsTypeNone))
     }
     exit(0)
 }
