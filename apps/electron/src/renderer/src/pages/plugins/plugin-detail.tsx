@@ -1,16 +1,24 @@
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
-import { Switch } from "@renderer/components/ui/switch";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@renderer/components/ui/dropdown-menu";
 import type { PluginInfo, PluginUpdateResult } from "@shared/plugins";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowLeft, ArrowRight, Loader2, MoreHorizontal } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router";
-import { pluginDisplayName, resolvePluginIcon } from "./helpers";
+import {
+  pluginDisplayName,
+  resolvePluginIcon,
+  usePluginUpdates,
+} from "./helpers";
 import { PluginReadme } from "./plugin-readme";
-
-const ONE_HOUR = 60 * 60 * 1000;
 
 export default function PluginDetailPage(): React.JSX.Element {
   const { slug } = useParams<{ slug: string }>();
@@ -31,29 +39,7 @@ export default function PluginDetailPage(): React.JSX.Element {
     queryClient.setQueryData(["plugins"], all);
   };
 
-  // Reuse the same query key family as the plugins list page so caching is
-  // shared — if the list page already checked, this page gets a cache hit.
-  const updateEntries = useMemo(
-    () =>
-      plugin?.version && !plugin.missing
-        ? [{ name: plugin.specifier, currentVersion: plugin.version }]
-        : [],
-    [plugin],
-  );
-
-  const { data: updatesMap } = useQuery({
-    queryKey: ["plugin-updates", updateEntries],
-    queryFn: async () => {
-      if (updateEntries.length === 0)
-        return new Map<string, PluginUpdateResult>();
-      const results = await window.api.checkPluginUpdates(updateEntries);
-      return new Map(results.map((r) => [r.name, r]));
-    },
-    staleTime: ONE_HOUR,
-    retry: 1,
-    enabled: !!plugin,
-  });
-
+  const { data: updatesMap } = usePluginUpdates(plugin ? [plugin] : []);
   const update = plugin ? updatesMap?.get(plugin.specifier) : undefined;
 
   return (
@@ -85,7 +71,15 @@ export default function PluginDetailPage(): React.JSX.Element {
             {t("plugins.detail.notFound")}
           </p>
         ) : (
-          <Detail plugin={plugin} onToggle={toggle} update={update} />
+          <Detail
+            plugin={plugin}
+            onToggle={toggle}
+            onUninstall={async () => {
+              await window.api.uninstallPlugin(plugin.specifier);
+              navigate("/plugins");
+            }}
+            update={update}
+          />
         )}
       </div>
     </div>
@@ -95,10 +89,12 @@ export default function PluginDetailPage(): React.JSX.Element {
 function Detail({
   plugin,
   onToggle,
+  onUninstall,
   update,
 }: {
   plugin: PluginInfo;
   onToggle: (enabled: boolean) => void | Promise<void>;
+  onUninstall: () => void | Promise<void>;
   update?: PluginUpdateResult;
 }): React.JSX.Element {
   const { t } = useTranslation();
@@ -186,13 +182,33 @@ function Detail({
               <ArrowRight data-icon="inline-end" />
             </Button>
           ) : null}
-          <Switch
-            checked={plugin.enabled}
-            onCheckedChange={(v) => void onToggle(v)}
-            aria-label={t(
-              plugin.enabled ? "plugins.disablePlugin" : "plugins.enablePlugin",
-            )}
-          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("plugins.more")}
+              >
+                <MoreHorizontal className="text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => void onToggle(!plugin.enabled)}>
+                {t(
+                  plugin.enabled
+                    ? "plugins.disablePlugin"
+                    : "plugins.enablePlugin",
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => void onUninstall()}
+              >
+                {t("plugins.uninstall")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 

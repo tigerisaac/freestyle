@@ -1,13 +1,9 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FreestyleBridge } from "freestyle-voice";
-import { useEffect, useMemo, useState } from "react";
-import {
-  buildMatchers,
-  clean,
-  type ReplacementMap,
-} from "../../src/replacements.js";
+import { useEffect, useRef, useState } from "react";
+import { useForm } from "react-hook-form";
 
 const ROUTE = "/api/plugins/freestyle-voice-profanity-filter/replacements";
-const DEMO_DEFAULT = "What the hell, this damn thing is broken and I'm pissed.";
 
 interface Entry {
   word: string;
@@ -20,120 +16,231 @@ interface ReplacementsResponse {
   replacements: Entry[];
 }
 
-type Load =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; data: ReplacementsResponse };
+function getBridge(): FreestyleBridge {
+  const b = window.freestyle;
+  if (!b) throw new Error("Host bridge unavailable.");
+  return b;
+}
 
-function useReplacements(): Load {
-  const [state, setState] = useState<Load>({ status: "loading" });
+async function fetchReplacements(): Promise<ReplacementsResponse> {
+  const res = await getBridge().api(ROUTE);
+  if (!res.ok) throw new Error(`server returned ${res.status}`);
+  return res.json<ReplacementsResponse>();
+}
+
+/**
+ * Send a mutating request to the replacements API and throw the server's error
+ * message on a non-OK response. Shared by the add, edit, and delete flows so
+ * failures surface consistently instead of being silently swallowed.
+ */
+async function mutateReplacements(
+  method: "POST" | "PUT" | "DELETE",
+  body: Record<string, unknown>,
+): Promise<void> {
+  const res = await getBridge().api(ROUTE, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res
+      .json<{ error?: string }>()
+      .catch(() => ({}) as { error?: string });
+    throw new Error(err.error ?? `server returned ${res.status}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Components
+// ---------------------------------------------------------------------------
+
+function BackButton() {
+  return (
+    <button
+      type="button"
+      className="back-btn"
+      onClick={() => window.freestyle?.invoke("navigate", { to: "/plugins" })}
+    >
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="m15 18-6-6 6-6" />
+      </svg>
+      Plugins
+    </button>
+  );
+}
+
+interface AddFormValues {
+  word: string;
+  alternatives: string;
+}
+
+function AddWordForm() {
+  const queryClient = useQueryClient();
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<AddFormValues>();
+
+  const mutation = useMutation({
+    mutationFn: async (data: AddFormValues) => {
+      const alternatives = data.alternatives
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (alternatives.length === 0)
+        throw new Error("At least one replacement is required");
+      await mutateReplacements("POST", {
+        word: data.word.trim(),
+        alternatives,
+      });
+    },
+    onSuccess: () => {
+      reset();
+      queryClient.invalidateQueries({ queryKey: ["replacements"] });
+    },
+  });
+
+  const onSubmit = handleSubmit((data) => mutation.mutate(data));
+
+  return (
+    <form className="add-form" onSubmit={onSubmit}>
+      <span className="add-label">Add a word</span>
+      <div className="add-fields">
+        <input
+          className="add-input"
+          type="text"
+          placeholder="Word or phrase…"
+          {...register("word", { required: true })}
+          aria-invalid={errors.word ? "true" : undefined}
+        />
+        <input
+          className="add-input add-input-wide"
+          type="text"
+          placeholder="Replacements (comma-separated)…"
+          {...register("alternatives", { required: true })}
+          aria-invalid={errors.alternatives ? "true" : undefined}
+        />
+        <button type="submit" className="add-btn" disabled={mutation.isPending}>
+          {mutation.isPending ? "Adding…" : "Add"}
+        </button>
+      </div>
+      {mutation.error ? (
+        <p className="add-error">{mutation.error.message}</p>
+      ) : null}
+    </form>
+  );
+}
+
+function WordRow({
+  entry,
+  onDelete,
+  onUpdate,
+}: {
+  entry: Entry;
+  onDelete: () => void;
+  onUpdate: (alts: string[]) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const editRef = useRef<HTMLInputElement>(null);
+
+  const startEdit = () => {
+    setEditValue(entry.alternatives.join(", "));
+    setEditing(true);
+  };
 
   useEffect(() => {
-    const bridge: FreestyleBridge | undefined = window.freestyle;
-    if (!bridge) {
-      setState({ status: "error", message: "Host bridge unavailable." });
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await bridge.api(ROUTE);
-        if (!res.ok) throw new Error(`server returned ${res.status}`);
-        const data = await res.json<ReplacementsResponse>();
-        if (!cancelled) setState({ status: "ready", data });
-      } catch (err) {
-        if (!cancelled) {
-          setState({
-            status: "error",
-            message: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (editing) editRef.current?.focus();
+  }, [editing]);
 
-  return state;
-}
+  const saveEdit = () => {
+    const alts = editValue
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (alts.length > 0) onUpdate(alts);
+    setEditing(false);
+  };
 
-function HowItWorks({
-  count,
-  preserveCase,
-}: {
-  count: number;
-  preserveCase: boolean;
-}) {
-  return (
-    <section className="card">
-      <h2>How it works</h2>
-      <p className="muted">
-        As you dictate, the filter rewrites the final text in Freestyle's
-        <code> afterCleanup </code> stage — the same step as dictionary
-        replacement. It's deterministic (no AI) and adds no latency.
-      </p>
-      <ul className="how-list">
-        <li>
-          <strong>{count}</strong> curse words and phrases are swapped for
-          wholesome, funnier stand-ins.
-        </li>
-        <li>
-          Matching is <strong>case-insensitive</strong> and on{" "}
-          <strong>word boundaries</strong> — so “class” and “hello” are never
-          touched.
-        </li>
-        <li>
-          <strong>Phrases win over words</strong> — “son of a bitch” → “son of a
-          biscuit”, not “son of a meanie”.
-        </li>
-        <li>
-          Casing is {preserveCase ? <strong>mirrored</strong> : "not mirrored"}{" "}
-          {preserveCase ? "(SHIT → SUGAR, Damn → Dang)" : ""}, and words with
-          several options cycle through them for variety.
-        </li>
-      </ul>
-    </section>
-  );
-}
-
-function TryIt({
-  map,
-  preserveCase,
-}: {
-  map: ReplacementMap;
-  preserveCase: boolean;
-}) {
-  const [text, setText] = useState(DEMO_DEFAULT);
-  const matchers = useMemo(() => buildMatchers(map), [map]);
-  const output = useMemo(
-    () => clean(text, matchers, preserveCase),
-    [text, matchers, preserveCase],
-  );
-  const changed = output !== text;
+  const cancelEdit = () => setEditing(false);
 
   return (
-    <section className="card">
-      <h2>Try it</h2>
-      <p className="muted">
-        Type a sentence to preview exactly what the filter would produce.
-      </p>
-      <textarea
-        className="demo-input"
-        rows={2}
-        value={text}
-        spellCheck={false}
-        onChange={(e) => setText(e.target.value)}
-      />
-      <div className={`demo-output ${changed ? "is-changed" : ""}`}>
-        {output || <span className="muted">…</span>}
-      </div>
-    </section>
+    <li className="word-row">
+      <span className="word">{entry.word}</span>
+      <span className="arrow">→</span>
+      {editing ? (
+        <span className="edit-inline">
+          <input
+            ref={editRef}
+            className="edit-input"
+            type="text"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveEdit();
+              if (e.key === "Escape") cancelEdit();
+            }}
+          />
+          <button type="button" className="row-btn save-btn" onClick={saveEdit}>
+            Save
+          </button>
+          <button
+            type="button"
+            className="row-btn cancel-btn"
+            onClick={cancelEdit}
+          >
+            Cancel
+          </button>
+        </span>
+      ) : (
+        <>
+          <span className="alts">
+            {entry.alternatives.map((a, i) => (
+              <span key={`${a}-${i}`} className="alt">
+                {a}
+                {i < entry.alternatives.length - 1 ? " · " : ""}
+              </span>
+            ))}
+          </span>
+          <span className="row-actions">
+            <button
+              type="button"
+              className="row-btn"
+              onClick={startEdit}
+              aria-label="Edit"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              className="row-btn delete-btn"
+              onClick={onDelete}
+              aria-label="Delete"
+            >
+              Delete
+            </button>
+          </span>
+        </>
+      )}
+    </li>
   );
 }
 
 function WordList({ entries }: { entries: Entry[] }) {
   const [query, setQuery] = useState("");
+  const queryClient = useQueryClient();
   const q = query.trim().toLowerCase();
   const filtered = q
     ? entries.filter(
@@ -143,10 +250,33 @@ function WordList({ entries }: { entries: Entry[] }) {
       )
     : entries;
 
+  const deleteMutation = useMutation({
+    mutationFn: (word: string) => mutateReplacements("DELETE", { word }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["replacements"] }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({
+      word,
+      alternatives,
+    }: {
+      word: string;
+      alternatives: string[];
+    }) => mutateReplacements("PUT", { word, alternatives }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["replacements"] }),
+  });
+
+  const rowError = deleteMutation.error ?? updateMutation.error;
+
   return (
     <section className="card">
       <div className="list-head">
-        <h2>Filtered words</h2>
+        <h2>
+          Filtered words
+          <span className="list-count">{entries.length}</span>
+        </h2>
         <input
           className="search"
           type="search"
@@ -155,23 +285,24 @@ function WordList({ entries }: { entries: Entry[] }) {
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
+      {rowError ? (
+        <p className="add-error">
+          {rowError instanceof Error ? rowError.message : String(rowError)}
+        </p>
+      ) : null}
       {filtered.length === 0 ? (
         <p className="muted">No matches.</p>
       ) : (
         <ul className="word-grid">
           {filtered.map((e) => (
-            <li key={e.word} className="word-row">
-              <span className="word">{e.word}</span>
-              <span className="arrow">→</span>
-              <span className="alts">
-                {e.alternatives.map((a, i) => (
-                  <span key={a} className="alt">
-                    {a}
-                    {i < e.alternatives.length - 1 ? " · " : ""}
-                  </span>
-                ))}
-              </span>
-            </li>
+            <WordRow
+              key={e.word}
+              entry={e}
+              onDelete={() => deleteMutation.mutate(e.word)}
+              onUpdate={(alts) =>
+                updateMutation.mutate({ word: e.word, alternatives: alts })
+              }
+            />
           ))}
         </ul>
       )}
@@ -180,40 +311,51 @@ function WordList({ entries }: { entries: Entry[] }) {
 }
 
 export function App() {
-  const state = useReplacements();
+  const queryClient = useQueryClient();
 
-  const map = useMemo<ReplacementMap>(() => {
-    if (state.status !== "ready") return {};
-    return Object.fromEntries(
-      state.data.replacements.map((e) => [e.word, e.alternatives]),
-    );
-  }, [state]);
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["replacements"],
+    queryFn: fetchReplacements,
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: async () => {
+      await getBridge().api(`${ROUTE}/reset`, { method: "POST" });
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["replacements"] }),
+  });
 
   return (
     <main className="page">
-      <header className="page-head">
-        <h1>Profanity Filter</h1>
-        <p className="muted">
-          Keeps your dictation family-friendly — and funnier.
-        </p>
+      <BackButton />
+      <header className="head-row">
+        <h1 className="page-title">Filtered words</h1>
+        <button
+          type="button"
+          className="reset-btn"
+          disabled={resetMutation.isPending}
+          onClick={() => resetMutation.mutate()}
+        >
+          {resetMutation.isPending ? "Resetting…" : "Reset to defaults"}
+        </button>
       </header>
 
-      {state.status === "loading" && <p className="muted">Loading…</p>}
+      {isLoading && <p className="muted">Loading…</p>}
 
-      {state.status === "error" && (
+      {error && (
         <section className="card error">
-          <p>Couldn't load the filter: {state.message}</p>
+          <p>
+            Couldn't load the filter:{" "}
+            {error instanceof Error ? error.message : String(error)}
+          </p>
         </section>
       )}
 
-      {state.status === "ready" && (
+      {data && (
         <>
-          <HowItWorks
-            count={state.data.count}
-            preserveCase={state.data.preserveCase}
-          />
-          <TryIt map={map} preserveCase={state.data.preserveCase} />
-          <WordList entries={state.data.replacements} />
+          <AddWordForm />
+          <WordList entries={data.replacements} />
         </>
       )}
     </main>
