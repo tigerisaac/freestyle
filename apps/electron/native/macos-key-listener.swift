@@ -279,11 +279,13 @@ func mouseButtonName(_ buttonNumber: Int) -> String? {
     }
 }
 
-func mouseButtonName(hidUsage: UInt32) -> String? {
-    switch hidUsage {
-    case UInt32(kHIDUsage_Button_4):
+func mouseButtonName(hidUsagePage: UInt32, hidUsage: UInt32) -> String? {
+    switch (hidUsagePage, hidUsage) {
+    case (UInt32(kHIDPage_Button), UInt32(kHIDUsage_Button_4)),
+         (UInt32(kHIDPage_Consumer), UInt32(kHIDUsage_Csmr_ACBack)):
         return "MouseButton4"
-    case UInt32(kHIDUsage_Button_5):
+    case (UInt32(kHIDPage_Button), UInt32(kHIDUsage_Button_5)),
+         (UInt32(kHIDPage_Consumer), UInt32(kHIDUsage_Csmr_ACForward)):
         return "MouseButton5"
     default:
         return nil
@@ -346,11 +348,6 @@ if let mouseEventTap {
     FileHandle.standardError.write("Failed to create mouse event tap\n".data(using: .utf8)!)
 }
 
-let hidMouseDeviceMatching: [String: NSNumber] = [
-    kIOHIDDeviceUsagePageKey: NSNumber(value: Int(kHIDPage_GenericDesktop)),
-    kIOHIDDeviceUsageKey: NSNumber(value: Int(kHIDUsage_GD_Mouse)),
-]
-
 let hidMouseButtonMatches: [CFDictionary] = [
     [
         kIOHIDElementUsagePageKey: NSNumber(value: Int(kHIDPage_Button)),
@@ -360,18 +357,29 @@ let hidMouseButtonMatches: [CFDictionary] = [
         kIOHIDElementUsagePageKey: NSNumber(value: Int(kHIDPage_Button)),
         kIOHIDElementUsageKey: NSNumber(value: Int(kHIDUsage_Button_5)),
     ] as CFDictionary,
+    [
+        kIOHIDElementUsagePageKey: NSNumber(value: Int(kHIDPage_Consumer)),
+        kIOHIDElementUsageKey: NSNumber(value: Int(kHIDUsage_Csmr_ACBack)),
+    ] as CFDictionary,
+    [
+        kIOHIDElementUsagePageKey: NSNumber(value: Int(kHIDPage_Consumer)),
+        kIOHIDElementUsageKey: NSNumber(value: Int(kHIDUsage_Csmr_ACForward)),
+    ] as CFDictionary,
 ]
 
 var hidMouseManager: IOHIDManager?
 let hidManager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-IOHIDManagerSetDeviceMatching(hidManager, hidMouseDeviceMatching as CFDictionary)
+// Logitech Options+ can expose thumb navigation on non-mouse HID collections,
+// so filter by element usage rather than top-level device class.
+IOHIDManagerSetDeviceMatching(hidManager, nil)
 IOHIDManagerSetInputValueMatchingMultiple(hidManager, hidMouseButtonMatches as CFArray)
 IOHIDManagerRegisterInputValueCallback(hidManager, { _, result, _, value in
     guard result == kIOReturnSuccess else { return }
 
     let element = IOHIDValueGetElement(value)
-    guard IOHIDElementGetUsagePage(element) == UInt32(kHIDPage_Button) else { return }
-    guard let buttonName = mouseButtonName(hidUsage: IOHIDElementGetUsage(element)) else { return }
+    let usagePage = IOHIDElementGetUsagePage(element)
+    let usage = IOHIDElementGetUsage(element)
+    guard let buttonName = mouseButtonName(hidUsagePage: usagePage, hidUsage: usage) else { return }
 
     let isDown = IOHIDValueGetIntegerValue(value) != 0
     _ = emitMouseButtonState(buttonName, isDown: isDown)
