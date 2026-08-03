@@ -37,6 +37,10 @@ import {
   TabsTrigger,
 } from "@renderer/components/ui/tabs";
 import { Textarea } from "@renderer/components/ui/textarea";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@renderer/components/ui/toggle-group";
 import { usePersistentState } from "@renderer/hooks/use-persistent-state";
 import { getClient } from "@renderer/lib/api";
 import { useCloudAuth } from "@renderer/lib/auth-context";
@@ -55,7 +59,7 @@ import {
   DEFAULT_CLEANUP_WORK_TONE,
 } from "../../../shared/cleanup-tone-settings";
 import { SETTINGS_KEYS } from "../../../shared/settings-keys";
-import { Eyebrow, PageHeader, PageShell } from "./models/page-chrome";
+import { PageHeader, PageShell } from "./models/page-chrome";
 import type { ConfiguredModel } from "./models/types";
 
 type ToneTab =
@@ -63,159 +67,139 @@ type ToneTab =
   | Exclude<CleanupToneDestination, "overall">
   | "everythingElse";
 
-const TONE_TABS: readonly ToneTab[] = [
-  "cleanup",
-  "personal",
-  "work",
-  "email",
-  "everythingElse",
+const TONE_TABS: readonly [ToneTab, string][] = [
+  ["cleanup", "tone.tabs.cleanup"],
+  ["personal", "tone.tabs.personal"],
+  ["work", "tone.tabs.work"],
+  ["email", "tone.tabs.email"],
+  ["everythingElse", "tone.tabs.everythingElse"],
 ];
 
 const isToneTab = (value: string): value is ToneTab =>
-  (TONE_TABS as readonly string[]).includes(value);
+  TONE_TABS.some(([tab]) => tab === value);
 
 const FREESTYLE_CLOUD_PROVIDER = "freestyle-cloud";
 
 type CleanupCardValue = CleanupIntensity;
 
-type ToneCardOption<T extends string> = {
+type ToneOption<T extends string> = {
   value: T;
   titleKey: string;
-  descKey: string;
+  /** The result this option produces for the tab's shared raw transcript. */
   sampleKey: string;
 };
 
-const CLEANUP_OPTIONS: ToneCardOption<CleanupCardValue>[] = [
+const CLEANUP_OPTIONS: ToneOption<CleanupCardValue>[] = [
   {
     value: "low",
     titleKey: "tone.cleanup.cards.low.title",
-    descKey: "tone.cleanup.cards.low.desc",
     sampleKey: "tone.cleanup.cards.low.sample",
   },
   {
     value: "medium",
     titleKey: "tone.cleanup.cards.medium.title",
-    descKey: "tone.cleanup.cards.medium.desc",
     sampleKey: "tone.cleanup.cards.medium.sample",
   },
   {
     value: "high",
     titleKey: "tone.cleanup.cards.high.title",
-    descKey: "tone.cleanup.cards.high.desc",
     sampleKey: "tone.cleanup.cards.high.sample",
   },
   {
     value: "custom",
     titleKey: "tone.cleanup.cards.custom.title",
-    descKey: "tone.cleanup.cards.custom.desc",
     sampleKey: "tone.cleanup.cards.custom.sample",
   },
 ];
 
-const PERSONAL_OPTIONS: ToneCardOption<CleanupPersonalTone>[] = [
+const PERSONAL_OPTIONS: ToneOption<CleanupPersonalTone>[] = [
   {
     value: "polished",
     titleKey: "tone.personal.cards.polished.title",
-    descKey: "tone.personal.cards.polished.desc",
     sampleKey: "tone.personal.cards.polished.sample",
   },
   {
     value: "casual",
     titleKey: "tone.personal.cards.casual.title",
-    descKey: "tone.personal.cards.casual.desc",
     sampleKey: "tone.personal.cards.casual.sample",
   },
   {
     value: "very_casual",
     titleKey: "tone.personal.cards.very_casual.title",
-    descKey: "tone.personal.cards.very_casual.desc",
     sampleKey: "tone.personal.cards.very_casual.sample",
   },
   {
     value: "off",
     titleKey: "tone.personal.cards.off.title",
-    descKey: "tone.personal.cards.off.desc",
     sampleKey: "tone.personal.cards.off.sample",
   },
 ];
 
-const WORK_OPTIONS: ToneCardOption<CleanupWorkTone>[] = [
+const WORK_OPTIONS: ToneOption<CleanupWorkTone>[] = [
   {
     value: "direct",
     titleKey: "tone.work.cards.direct.title",
-    descKey: "tone.work.cards.direct.desc",
     sampleKey: "tone.work.cards.direct.sample",
   },
   {
     value: "friendly",
     titleKey: "tone.work.cards.friendly.title",
-    descKey: "tone.work.cards.friendly.desc",
     sampleKey: "tone.work.cards.friendly.sample",
   },
   {
     value: "formal",
     titleKey: "tone.work.cards.formal.title",
-    descKey: "tone.work.cards.formal.desc",
     sampleKey: "tone.work.cards.formal.sample",
   },
   {
     value: "off",
     titleKey: "tone.work.cards.off.title",
-    descKey: "tone.work.cards.off.desc",
     sampleKey: "tone.work.cards.off.sample",
   },
 ];
 
-const EMAIL_OPTIONS: ToneCardOption<CleanupEmailTone>[] = [
+const EMAIL_OPTIONS: ToneOption<CleanupEmailTone>[] = [
   {
     value: "casual",
     titleKey: "tone.email.cards.casual.title",
-    descKey: "tone.email.cards.casual.desc",
     sampleKey: "tone.email.cards.casual.sample",
   },
   {
     value: "warm",
     titleKey: "tone.email.cards.warm.title",
-    descKey: "tone.email.cards.warm.desc",
     sampleKey: "tone.email.cards.warm.sample",
   },
   {
     value: "formal",
     titleKey: "tone.email.cards.formal.title",
-    descKey: "tone.email.cards.formal.desc",
     sampleKey: "tone.email.cards.formal.sample",
   },
   {
     value: "off",
     titleKey: "tone.email.cards.off.title",
-    descKey: "tone.email.cards.off.desc",
     sampleKey: "tone.email.cards.off.sample",
   },
 ];
 
-const OVERALL_OPTIONS: ToneCardOption<CleanupOverallTone>[] = [
+const OVERALL_OPTIONS: ToneOption<CleanupOverallTone>[] = [
   {
     value: "casual",
     titleKey: "tone.everythingElse.cards.casual.title",
-    descKey: "tone.everythingElse.cards.casual.desc",
     sampleKey: "tone.everythingElse.cards.casual.sample",
   },
   {
     value: "neutral",
     titleKey: "tone.everythingElse.cards.neutral.title",
-    descKey: "tone.everythingElse.cards.neutral.desc",
     sampleKey: "tone.everythingElse.cards.neutral.sample",
   },
   {
     value: "professional",
     titleKey: "tone.everythingElse.cards.professional.title",
-    descKey: "tone.everythingElse.cards.professional.desc",
     sampleKey: "tone.everythingElse.cards.professional.sample",
   },
   {
     value: "off",
     titleKey: "tone.everythingElse.cards.off.title",
-    descKey: "tone.everythingElse.cards.off.desc",
     sampleKey: "tone.everythingElse.cards.off.sample",
   },
 ];
@@ -490,10 +474,20 @@ export default function TonePage(): React.JSX.Element {
 
   const cleanupMode: CleanupCardValue = cleanupIntensity;
 
+  // Each tab shows its own current value, so the tab row doubles as the summary
+  // of every tone setting — no need to open all five to see where you stand.
+  const tabValues: Record<ToneTab, string> = {
+    cleanup: optionTitle(t, CLEANUP_OPTIONS, cleanupMode),
+    personal: optionTitle(t, PERSONAL_OPTIONS, personalTone),
+    work: optionTitle(t, WORK_OPTIONS, workTone),
+    email: optionTitle(t, EMAIL_OPTIONS, emailTone),
+    everythingElse: optionTitle(t, OVERALL_OPTIONS, overallTone),
+  };
+
   if (loading) {
     return (
       <PageShell>
-        <div className="mx-auto w-full max-w-[1060px]">
+        <div className="mx-auto w-full max-w-[760px]">
           <div className="flex items-center justify-center py-24">
             <p className="text-muted-foreground text-sm">{t("tone.loading")}</p>
           </div>
@@ -504,7 +498,7 @@ export default function TonePage(): React.JSX.Element {
 
   return (
     <PageShell>
-      <div className="mx-auto w-full max-w-[1060px]">
+      <div className="mx-auto w-full max-w-[760px]">
         <PageHeader title={t("tone.title")} subtitle={t("tone.subtitle")} />
 
         {!llmCleanup ? (
@@ -520,29 +514,34 @@ export default function TonePage(): React.JSX.Element {
         <Tabs
           value={activeTab}
           onValueChange={(value) => setActiveTab(value as ToneTab)}
-          className="mt-8 gap-7"
+          className="mt-7 gap-0"
         >
-          <TabsList className="h-11 w-fit max-w-full items-stretch gap-1 self-start overflow-x-auto overflow-y-hidden rounded-full border border-border bg-card p-[3px]">
-            {(
-              [
-                ["cleanup", "tone.tabs.cleanup"],
-                ["personal", "tone.tabs.personal"],
-                ["work", "tone.tabs.work"],
-                ["email", "tone.tabs.email"],
-                ["everythingElse", "tone.tabs.everythingElse"],
-              ] as const
-            ).map(([value, key]) => (
+          <TabsList
+            variant="line"
+            className="border-border h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b bg-transparent p-0"
+          >
+            {TONE_TABS.map(([value, key]) => (
               <TabsTrigger
                 key={value}
                 value={value}
-                className="h-full flex-none rounded-full px-4 py-0 text-[13px] font-medium leading-none data-active:bg-accent data-active:text-accent-foreground dark:data-active:border-transparent dark:data-active:bg-accent dark:data-active:text-accent-foreground"
+                className="h-auto flex-none flex-col items-start gap-[3px] rounded-none px-3.5 pt-0 pb-2.5 text-[13px] first:pl-0 after:bottom-[-1px]"
               >
                 {t(key)}
+                <span
+                  className={cn(
+                    "text-[11px] font-normal",
+                    activeTab === value
+                      ? "text-primary"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {tabValues[value]}
+                </span>
               </TabsTrigger>
             ))}
           </TabsList>
 
-          <TabsContent value="cleanup" className="mt-0">
+          <TabsContent value="cleanup">
             <CleanupTonePanel
               value={cleanupMode}
               onChange={selectCleanupMode}
@@ -555,11 +554,11 @@ export default function TonePage(): React.JSX.Element {
             />
           </TabsContent>
 
-          <TabsContent value="personal" className="mt-0">
+          <TabsContent value="personal">
             <SubsetTonePanel
               destination="personal"
               previewKind="personal"
-              title={t("tone.personal.title")}
+              label={t("tone.tabs.personal")}
               apps={getVisibleBuiltinRouteIds("personal", assignments)}
               value={personalTone}
               options={PERSONAL_OPTIONS}
@@ -573,11 +572,11 @@ export default function TonePage(): React.JSX.Element {
             />
           </TabsContent>
 
-          <TabsContent value="work" className="mt-0">
+          <TabsContent value="work">
             <SubsetTonePanel
               destination="work"
               previewKind="work"
-              title={t("tone.work.title")}
+              label={t("tone.tabs.work")}
               apps={getVisibleBuiltinRouteIds("work", assignments)}
               value={workTone}
               options={WORK_OPTIONS}
@@ -589,11 +588,11 @@ export default function TonePage(): React.JSX.Element {
             />
           </TabsContent>
 
-          <TabsContent value="email" className="mt-0">
+          <TabsContent value="email">
             <SubsetTonePanel
               destination="email"
               previewKind="email"
-              title={t("tone.email.title")}
+              label={t("tone.tabs.email")}
               apps={getVisibleBuiltinRouteIds("email", assignments)}
               value={emailTone}
               options={EMAIL_OPTIONS}
@@ -605,12 +604,11 @@ export default function TonePage(): React.JSX.Element {
             />
           </TabsContent>
 
-          <TabsContent value="everythingElse" className="mt-0">
+          <TabsContent value="everythingElse">
             <SubsetTonePanel
               destination="overall"
               previewKind="overall"
-              title={t("tone.everythingElse.title")}
-              desc={t("tone.everythingElse.desc")}
+              label={t("tone.tabs.everythingElse")}
               apps={[]}
               value={overallTone}
               options={OVERALL_OPTIONS}
@@ -629,6 +627,138 @@ export default function TonePage(): React.JSX.Element {
   );
 }
 
+function optionTitle<T extends string>(
+  t: (key: string) => string,
+  options: ToneOption<T>[],
+  value: T,
+): string {
+  const option = options.find((o) => o.value === value) ?? options[0]!;
+  return t(option.titleKey);
+}
+
+// ---------------------------------------------------------------------------
+// Choosing a tone
+// ---------------------------------------------------------------------------
+
+/**
+ * Pointing at an option shows it in the example; the committed value comes back
+ * when the pointer leaves. Restoring is delayed so that travelling across the
+ * gap between two chips doesn't flash the committed sample in between.
+ */
+function useHoverPreview<T extends string>(
+  committed: T,
+): [T, (value: T | null) => void] {
+  const [hovered, setHovered] = useState<T | null>(null);
+  const restoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (restoreTimer.current) clearTimeout(restoreTimer.current);
+    },
+    [],
+  );
+
+  const preview = useCallback((value: T | null) => {
+    if (restoreTimer.current) {
+      clearTimeout(restoreTimer.current);
+      restoreTimer.current = null;
+    }
+    if (value === null) {
+      restoreTimer.current = setTimeout(() => setHovered(null), 160);
+      return;
+    }
+    setHovered(value);
+  }, []);
+
+  return [hovered ?? committed, preview];
+}
+
+function ToneChips<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  onPreview,
+  disabled,
+}: {
+  label: string;
+  options: ToneOption<T>[];
+  value: T;
+  onChange: (value: T) => void;
+  onPreview: (value: T | null) => void;
+  disabled?: boolean;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <ToggleGroup
+      type="single"
+      value={value}
+      // Radix allows deselecting the active item; a tone must always be set.
+      onValueChange={(next) => next && onChange(next as T)}
+      aria-label={label}
+      disabled={disabled}
+      spacing={1.5}
+      className={cn("mt-5 flex-wrap", disabled && "opacity-50")}
+      onMouseLeave={() => onPreview(null)}
+    >
+      {options.map((option) => (
+        <ToggleGroupItem
+          key={option.value}
+          value={option.value}
+          variant="outline"
+          onMouseEnter={() => onPreview(option.value)}
+          onFocus={() => onPreview(option.value)}
+          onBlur={() => onPreview(null)}
+          className="text-muted-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground rounded-full px-3.5 text-[13px] font-normal"
+        >
+          {t(option.titleKey)}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
+  );
+}
+
+/**
+ * Every option's example is rendered, stacked in one grid cell, and only the
+ * shown one is visible. The stage is therefore always as tall as the tallest
+ * example, so moving between options cross-fades in place instead of resizing
+ * the page under the pointer.
+ */
+function ToneStage<T extends string>({
+  options,
+  shown,
+  render,
+}: {
+  options: ToneOption<T>[];
+  shown: T;
+  render: (option: ToneOption<T>) => React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <div className="mt-5 grid">
+      {options.map((option) => {
+        const visible = option.value === shown;
+        return (
+          <div
+            key={option.value}
+            aria-hidden={!visible}
+            inert={!visible}
+            className={cn(
+              "col-start-1 row-start-1 transition-opacity duration-150",
+              visible ? "opacity-100" : "pointer-events-none opacity-0",
+            )}
+          >
+            {render(option)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Banners
+// ---------------------------------------------------------------------------
+
 // Shown across every Tone tab while post-processing is off. Cleanup enablement
 // now lives on the Models page, so this points users there (and offers a
 // one-click Freestyle Cloud path when signed in).
@@ -643,30 +773,21 @@ function CleanupDisabledBanner({
 }): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <div className="border-border/70 bg-card mt-6 flex flex-wrap items-center justify-between gap-3 rounded-[14px] border border-dashed px-4 py-3.5">
-      <div className="min-w-0">
-        <p className="text-foreground text-[13px] font-medium">
-          {t("tone.disabledBanner.title")}
-        </p>
-        <p className="text-muted-foreground mt-0.5 text-[12px] leading-[1.5]">
-          {t("tone.disabledBanner.desc")}
-        </p>
-      </div>
-      <div className="flex items-center gap-2">
-        {signedIn ? (
-          <Button variant="ink" size="sm" onClick={onUseCloud} disabled={busy}>
-            {busy
-              ? t("tone.disabledBanner.useCloudBusy")
-              : t("tone.disabledBanner.useCloud")}
-          </Button>
-        ) : null}
-        <Button asChild variant="outline" size="sm">
-          <Link to="/settings/models">
-            {t("tone.disabledBanner.goToModels")}
-          </Link>
+    <ToneNotice
+      title={t("tone.disabledBanner.title")}
+      desc={t("tone.disabledBanner.desc")}
+    >
+      {signedIn ? (
+        <Button variant="ink" size="sm" onClick={onUseCloud} disabled={busy}>
+          {busy
+            ? t("tone.disabledBanner.useCloudBusy")
+            : t("tone.disabledBanner.useCloud")}
         </Button>
-      </div>
-    </div>
+      ) : null}
+      <Button asChild variant="outline" size="sm">
+        <Link to="/settings/models">{t("tone.disabledBanner.goToModels")}</Link>
+      </Button>
+    </ToneNotice>
   );
 }
 
@@ -676,21 +797,44 @@ function CleanupDisabledBanner({
 function CleanupNoModelBanner(): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <div className="border-border/70 bg-card mt-6 flex flex-wrap items-center justify-between gap-3 rounded-[14px] border border-dashed px-4 py-3.5">
-      <div className="min-w-0">
-        <p className="text-foreground text-[13px] font-medium">
-          {t("tone.cleanup.noModelTitle")}
-        </p>
-        <p className="text-muted-foreground mt-0.5 text-[12px] leading-[1.5]">
-          {t("tone.cleanup.noModelDesc")}
-        </p>
-      </div>
+    <ToneNotice
+      title={t("tone.cleanup.noModelTitle")}
+      desc={t("tone.cleanup.noModelDesc")}
+    >
       <Button asChild variant="outline" size="sm">
         <Link to="/settings/models">{t("tone.cleanup.noModelCta")}</Link>
       </Button>
+    </ToneNotice>
+  );
+}
+
+// A terracotta rule rather than a boxed banner — states that the page is inert
+// without competing with the example below it.
+function ToneNotice({
+  title,
+  desc,
+  children,
+}: {
+  title: string;
+  desc: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <div className="border-destructive/70 mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-l-2 pl-4">
+      <div className="min-w-0">
+        <p className="text-foreground text-[13px] font-semibold">{title}</p>
+        <p className="text-muted-foreground mt-0.5 text-[12.5px] leading-[1.5]">
+          {desc}
+        </p>
+      </div>
+      <div className="flex items-center gap-2">{children}</div>
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Panels
+// ---------------------------------------------------------------------------
 
 function CleanupTonePanel({
   value,
@@ -714,132 +858,37 @@ function CleanupTonePanel({
   disabled?: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
-
-  const handleOptionKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
-      if (
-        ![
-          "ArrowRight",
-          "ArrowDown",
-          "ArrowLeft",
-          "ArrowUp",
-          "Home",
-          "End",
-        ].includes(event.key)
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-
-      if (event.key === "Home") {
-        onChange(CLEANUP_OPTIONS[0]!.value);
-        return;
-      }
-
-      if (event.key === "End") {
-        onChange(CLEANUP_OPTIONS.at(-1)!.value);
-        return;
-      }
-
-      const delta =
-        event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
-      const nextIndex =
-        (index + delta + CLEANUP_OPTIONS.length) % CLEANUP_OPTIONS.length;
-      onChange(CLEANUP_OPTIONS[nextIndex]!.value);
-    },
-    [onChange],
-  );
-
-  const activeOption =
-    CLEANUP_OPTIONS.find((option) => option.value === value) ??
-    CLEANUP_OPTIONS[0]!;
+  const [shown, preview] = useHoverPreview(value);
 
   return (
-    <div className="space-y-6">
-      <section className="border-t border-border/70 pt-5">
-        <h2 className="text-foreground text-[28px] leading-[1.05] font-medium tracking-[-0.03em]">
-          {t("tone.cleanup.title")}
-        </h2>
-        <p className="text-muted-foreground mt-2 max-w-[52ch] text-[13px] leading-[1.55]">
-          {t("tone.cleanup.desc")}
-        </p>
-      </section>
+    <div>
+      <ToneChips
+        label={t("tone.tabs.cleanup")}
+        options={CLEANUP_OPTIONS}
+        value={value}
+        onChange={onChange}
+        onPreview={preview}
+        disabled={disabled}
+      />
 
-      <div className="space-y-5">
+      {value === "custom" ? (
+        // Committed to custom rules: the editor replaces the example, since
+        // there is nothing to preview until the rules are written.
         <div
-          role="radiogroup"
-          aria-label={t("tone.cleanup.title")}
-          aria-disabled={disabled}
-          className={cn(
-            "grid grid-cols-2 gap-2.5 min-[560px]:grid-cols-3 min-[1000px]:grid-cols-5",
-            disabled && "pointer-events-none opacity-50",
-          )}
+          className={cn("mt-5", disabled && "pointer-events-none opacity-50")}
         >
-          {CLEANUP_OPTIONS.map((option, index) => {
-            const selected = option.value === value;
-            return (
-              // biome-ignore lint/a11y/useSemanticElements: roving-tabindex radiogroup on styled buttons; <input type="radio"> would need a full restyle of the card layout.
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                disabled={disabled}
-                tabIndex={disabled ? -1 : selected ? 0 : -1}
-                onClick={() => onChange(option.value)}
-                onKeyDown={(event) => handleOptionKeyDown(event, index)}
-                className={cn(
-                  "group border-border bg-card relative flex flex-col gap-1.5 overflow-hidden rounded-[14px] border py-3.5 pr-3.5 pl-5 text-left transition-all duration-150 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none",
-                  "hover:border-foreground/20 hover:bg-card/90",
-                  selected && "border-primary/40 bg-accent/45",
-                )}
-              >
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full transition-all duration-150",
-                    selected
-                      ? "bg-primary h-9"
-                      : "bg-foreground/15 h-0 group-hover:h-5",
-                  )}
-                />
-                <div className="flex items-center justify-between gap-1.5">
-                  <p className="serif text-foreground text-[21px] leading-none tracking-[-0.03em]">
-                    {t(option.titleKey)}
-                  </p>
-                  <span
-                    className={cn(
-                      "flex size-[18px] shrink-0 items-center justify-center rounded-full border transition-colors duration-150",
-                      selected
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border/70 bg-transparent text-transparent group-hover:border-foreground/25",
-                    )}
-                  >
-                    <Check
-                      className="size-2.5"
-                      strokeWidth={3}
-                      aria-hidden="true"
-                    />
-                  </span>
-                </div>
-                <p className="text-muted-foreground text-[11.5px] leading-[1.4]">
-                  {t(option.descKey)}
-                </p>
-              </button>
-            );
-          })}
-        </div>
-
-        {value === "custom" ? (
-          <div
-            className={cn(
-              "border-border bg-card rounded-[18px] border p-5",
-              disabled && "pointer-events-none opacity-50",
-            )}
-          >
-            <div className="mb-2.5 flex items-center justify-between gap-3">
-              <Eyebrow text={t("models.cleanup.promptLabel")} />
+          <Textarea
+            value={cleanupCustomPrompt}
+            maxLength={CLEANUP_CUSTOM_PROMPT_MAX}
+            onChange={(event) => onCustomPromptChange(event.target.value)}
+            spellCheck={false}
+            disabled={disabled}
+            className="mono min-h-[150px] resize-y text-[12px] leading-[1.65]"
+            aria-label={t("models.cleanup.promptLabel")}
+          />
+          <div className="text-muted-foreground mt-2.5 flex flex-wrap items-center justify-between gap-3 text-[11px]">
+            <span>{t("models.cleanup.customHint")}</span>
+            <span className="flex items-center gap-3">
               <Button
                 variant="link"
                 size="sm"
@@ -849,21 +898,6 @@ function CleanupTonePanel({
               >
                 {t("models.cleanup.resetToPresets")}
               </Button>
-            </div>
-            <p className="text-muted-foreground mb-3 text-[12.5px] leading-[1.55]">
-              {t("models.cleanup.presetHint")}
-            </p>
-            <Textarea
-              value={cleanupCustomPrompt}
-              maxLength={CLEANUP_CUSTOM_PROMPT_MAX}
-              onChange={(event) => onCustomPromptChange(event.target.value)}
-              spellCheck={false}
-              disabled={disabled}
-              className="mono min-h-[180px] resize-y text-[12px] leading-[1.65]"
-              aria-label={t("models.cleanup.promptLabel")}
-            />
-            <div className="text-muted-foreground mt-3 flex flex-wrap items-center justify-between gap-3 text-[11px]">
-              <span>{t("models.cleanup.customHint")}</span>
               <Button
                 variant="ink"
                 size="sm"
@@ -884,34 +918,18 @@ function CleanupTonePanel({
                   </>
                 )}
               </Button>
-            </div>
+            </span>
           </div>
-        ) : (
-          <div className="border-border bg-card rounded-[18px] border p-5">
-            <div className="grid gap-5 min-[720px]:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] min-[720px]:gap-8">
-              <div>
-                <Eyebrow text={t("tone.cleanup.preview.rawLabel")} />
-                <p className="text-muted-foreground mt-2.5 text-[13.5px] leading-[1.6]">
-                  {t("tone.cleanup.preview.rawSample")}
-                </p>
-              </div>
-              <div className="min-[720px]:border-border/60 min-[720px]:border-l min-[720px]:pl-8">
-                <div className="mb-2.5 flex items-center justify-between gap-2">
-                  <Eyebrow
-                    text={t("tone.cleanup.preview.resultLabel")}
-                    accent
-                  />
-                  <Eyebrow text={t(activeOption.titleKey)} />
-                </div>
-                <CleanupPreview
-                  result={t(activeOption.sampleKey)}
-                  selected={false}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <ToneStage
+          options={CLEANUP_OPTIONS}
+          shown={shown}
+          render={(option) => (
+            <CleanupPreview result={t(option.sampleKey)} selected={false} />
+          )}
+        />
+      )}
     </div>
   );
 }
@@ -919,8 +937,7 @@ function CleanupTonePanel({
 function SubsetTonePanel<T extends string>({
   destination,
   previewKind,
-  title,
-  desc,
+  label,
   apps,
   value,
   options,
@@ -933,11 +950,10 @@ function SubsetTonePanel<T extends string>({
 }: {
   destination: CleanupToneDestination;
   previewKind: "personal" | "work" | "email" | "overall";
-  title: string;
-  desc?: string;
+  label: string;
   apps: readonly AppMarkId[];
   value: T;
-  options: ToneCardOption<T>[];
+  options: ToneOption<T>[];
   onChange: (value: T) => void;
   assignments: CleanupAppAssignment[];
   allAssignments: CleanupAppAssignment[];
@@ -946,120 +962,51 @@ function SubsetTonePanel<T extends string>({
   disabled?: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const [shown, preview] = useHoverPreview(value);
+  // "Everything else" is the catch-all destination — it owns whatever nothing
+  // else claims, so there is nothing to route into it.
   const canManageRoutes = destination !== "overall";
-  const hasRouteIcons = apps.length > 0 || assignments.length > 0;
 
-  const handleOptionKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
-      if (
-        ![
-          "ArrowRight",
-          "ArrowDown",
-          "ArrowLeft",
-          "ArrowUp",
-          "Home",
-          "End",
-        ].includes(event.key)
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-
-      if (event.key === "Home") {
-        onChange(options[0]!.value);
-        return;
-      }
-
-      if (event.key === "End") {
-        onChange(options.at(-1)!.value);
-        return;
-      }
-
-      const delta =
-        event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
-      const nextIndex = (index + delta + options.length) % options.length;
-      onChange(options[nextIndex]!.value);
-    },
-    [onChange, options],
-  );
-
-  const renderPreview = (
-    sample: string,
-    selected: boolean,
-  ): React.JSX.Element => {
+  const renderSurface = (option: ToneOption<T>): React.ReactNode => {
+    const sample = t(option.sampleKey);
+    // "Off" applies no destination styling, so it shows as plain text rather
+    // than dressed in the app's chrome.
+    if (option.value === "off" || previewKind === "overall") {
+      return <NotePreview sample={sample} selected={false} />;
+    }
     if (previewKind === "personal") {
-      return <TextMessagePreview sample={sample} selected={selected} />;
+      return <TextMessagePreview sample={sample} selected={false} />;
     }
     if (previewKind === "work") {
       return (
         <WorkChatPreview
           sample={sample}
-          selected={selected}
+          selected={false}
           sender={t("tone.work.preview.sender")}
           time={t("tone.work.preview.time")}
         />
       );
     }
-    if (previewKind === "email") {
-      return (
-        <EmailPreview
-          body={sample}
-          selected={selected}
-          to={t("tone.email.preview.to")}
-          subject={t("tone.email.preview.subject")}
-        />
-      );
-    }
-    return <NotePreview sample={sample} selected={selected} />;
+    return (
+      <EmailPreview
+        body={sample}
+        selected={false}
+        to={t("tone.email.preview.to")}
+        subject={t("tone.email.preview.subject")}
+      />
+    );
   };
 
-  const activeOption = options.find((o) => o.value === value) ?? options[0]!;
-  const rawSampleKey =
-    previewKind === "overall"
-      ? "tone.everythingElse.preview.rawSample"
-      : `tone.${previewKind}.preview.rawSample`;
-
   return (
-    <div className="space-y-6">
-      <section className="grid gap-5 border-t border-border/70 pt-5 min-[980px]:grid-cols-[minmax(0,1fr)_300px] min-[980px]:items-start">
-        <div className="min-w-0">
-          <h2 className="text-foreground text-[28px] leading-[1.05] font-medium tracking-[-0.03em]">
-            {title}
-          </h2>
-          {desc ? (
-            <p className="text-muted-foreground mt-2 max-w-[52ch] text-[13px] leading-[1.55]">
-              {desc}
-            </p>
-          ) : null}
-        </div>
-        <div className="min-[980px]:justify-self-end">
-          <Eyebrow text={t("tone.routesFrom")} />
-          {hasRouteIcons ? (
-            <AppMarkRow
-              ids={apps}
-              assignments={assignments}
-              size={30}
-              className="mt-3"
-              trailing={
-                canManageRoutes ? (
-                  <AppAssignments
-                    destination={destination}
-                    items={assignments}
-                    allItems={allAssignments}
-                    onAdd={onAddAssignment}
-                    onRemove={onRemoveAssignment}
-                  />
-                ) : undefined
-              }
-            />
-          ) : (
-            <p className="text-muted-foreground mt-3 text-[12px] leading-[1.5]">
-              {t("tone.apps.anyUnlisted")}
-            </p>
-          )}
-          {!hasRouteIcons && canManageRoutes ? (
-            <div className="mt-3 flex items-center">
+    <div>
+      {canManageRoutes || assignments.length > 0 ? (
+        <AppMarkRow
+          ids={apps}
+          assignments={assignments}
+          size={26}
+          className="mt-5"
+          trailing={
+            canManageRoutes ? (
               <AppAssignments
                 destination={destination}
                 items={assignments}
@@ -1067,99 +1014,21 @@ function SubsetTonePanel<T extends string>({
                 onAdd={onAddAssignment}
                 onRemove={onRemoveAssignment}
               />
-            </div>
-          ) : null}
-        </div>
-      </section>
+            ) : undefined
+          }
+        />
+      ) : null}
 
-      <div className="grid gap-4 min-[820px]:grid-cols-[minmax(0,300px)_minmax(0,1fr)] min-[820px]:items-start">
-        <div
-          role="radiogroup"
-          aria-label={title}
-          aria-disabled={disabled}
-          className={cn(
-            "flex flex-col gap-2.5",
-            disabled && "pointer-events-none opacity-50",
-          )}
-        >
-          {options.map((option, index) => {
-            const selected = option.value === value;
-            return (
-              // biome-ignore lint/a11y/useSemanticElements: roving-tabindex radiogroup on styled buttons; <input type="radio"> would need a full restyle of the card layout.
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                disabled={disabled}
-                tabIndex={disabled ? -1 : selected ? 0 : -1}
-                onClick={() => onChange(option.value)}
-                onKeyDown={(event) => handleOptionKeyDown(event, index)}
-                className={cn(
-                  "group border-border bg-card relative flex items-center gap-3 overflow-hidden rounded-[16px] border py-4 pr-4 pl-5 text-left transition-all duration-150 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none",
-                  "hover:border-foreground/20 hover:bg-card/90",
-                  selected && "border-primary/40 bg-accent/45",
-                )}
-              >
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full transition-all duration-150",
-                    selected
-                      ? "bg-primary h-9"
-                      : "bg-foreground/15 h-0 group-hover:h-5",
-                  )}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="serif text-foreground text-[24px] leading-none tracking-[-0.03em]">
-                    {t(option.titleKey)}
-                  </p>
-                  <p className="text-muted-foreground mt-2 text-[12.5px] leading-[1.45]">
-                    {t(option.descKey)}
-                  </p>
-                </div>
-                <span
-                  className={cn(
-                    "flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors duration-150",
-                    selected
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border/70 bg-transparent text-transparent group-hover:border-foreground/25",
-                  )}
-                >
-                  <Check
-                    className="size-3"
-                    strokeWidth={3}
-                    aria-hidden="true"
-                  />
-                </span>
-              </button>
-            );
-          })}
-        </div>
+      <ToneChips
+        label={label}
+        options={options}
+        value={value}
+        onChange={onChange}
+        onPreview={preview}
+        disabled={disabled}
+      />
 
-        <div>
-          <div className="mb-2.5 flex items-center justify-between gap-2">
-            <Eyebrow text={t("tone.previewLabel")} />
-            <Eyebrow text={t(activeOption.titleKey)} accent />
-          </div>
-          <div className="space-y-1.5">
-            <Eyebrow text={t("tone.cleanup.preview.rawLabel")} />
-            <p className="text-muted-foreground text-[13px] leading-[1.55]">
-              {t(rawSampleKey)}
-            </p>
-          </div>
-          <div className="my-3.5 flex items-center gap-2.5">
-            <span className="border-border/70 h-px flex-1 border-t" />
-            <Eyebrow text={t("tone.cleanup.preview.resultLabel")} accent />
-            <span className="border-border/70 h-px flex-1 border-t" />
-          </div>
-          {activeOption.value === "off" ? (
-            <NotePreview sample={t(activeOption.sampleKey)} selected={false} />
-          ) : (
-            renderPreview(t(activeOption.sampleKey), false)
-          )}
-        </div>
-      </div>
+      <ToneStage options={options} shown={shown} render={renderSurface} />
     </div>
   );
 }

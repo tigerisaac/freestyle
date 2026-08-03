@@ -375,8 +375,6 @@
       "useCloud": "Use Freestyle Cloud",
       "useCloudBusy": "Setting up…"
     },
-    "routesFrom": "Routes from",
-    "previewLabel": "Preview",
     "tabs": {
       "cleanup": "Cleanup",
       "personal": "Personal",
@@ -385,40 +383,28 @@
       "everythingElse": "Everything else"
     },
     "cleanup": {
-      "eyebrow": "Cleanup",
-      "title": "Tidy up as I talk.",
-      "desc": "How much to fix before your words land.",
       "currentMode": "Current mode",
       "toggleLabel": "Cleanup",
       "strengthLabel": "Strength",
       "noModelTitle": "No cleanup model selected.",
       "noModelDesc": "Choose one in Models. These settings apply as soon as a model is configured.",
       "noModelCta": "Open Models",
-      "preview": {
-        "rawLabel": "Raw transcript",
-        "rawSample": "hey uh can you send the latest version i think the footer link is still wrong",
-        "resultLabel": "What lands",
-        "customLabel": "Your rules"
-      },
+      "preview": {},
       "cards": {
         "low": {
           "title": "Low",
-          "desc": "Punctuation and caps.",
           "sample": "Hey, uh, can you send the latest version? I think the footer link is still wrong."
         },
         "medium": {
           "title": "Medium",
-          "desc": "Grammar and phrasing.",
           "sample": "Hey, can you send the latest version? I think the footer link is still wrong."
         },
         "high": {
           "title": "High",
-          "desc": "Rewritten for flow.",
           "sample": "Can you send the latest version? I think the footer link is still wrong."
         },
         "custom": {
           "title": "Custom",
-          "desc": "Your own instructions.",
           "sample": "Your prompt decides how much to rewrite, tighten, or preserve."
         }
       }
@@ -433,7 +419,6 @@
       "cancel": "Cancel",
       "remove": "Remove",
       "hint": "Add any app or website that should use this tone.",
-      "anyUnlisted": "Any app we don't recognize",
       "dialogTitle": "Add routes",
       "currentRoutes": "Added here",
       "currentRoute": "Already added here",
@@ -452,125 +437,89 @@
       "kindSite": "Website"
     },
     "personal": {
-      "eyebrow": "Personal texts",
-      "title": "Texting voice.",
-      "desc": "Used in Messages, WhatsApp, Telegram, and Discord.",
-      "preview": {
-        "rawSample": "hey um i'm running like 10 minutes late i'll be there soon"
-      },
       "cards": {
         "polished": {
-          "title": "Polished",
-          "desc": "Caps and full punctuation.",
+          "title": "Polished.",
           "sample": "Hey, I'm running about 10 minutes late. I'll be there soon."
         },
         "casual": {
           "title": "Casual",
-          "desc": "Light punctuation.",
           "sample": "Hey I'm running about 10 min late, I'll be there soon"
         },
         "very_casual": {
-          "title": "Very casual",
-          "desc": "Lowercase and shorthand.",
+          "title": "very casual",
           "sample": "running like 10 min late be there soon"
         },
         "off": {
           "title": "Off",
-          "desc": "No styling — just clean text.",
-          "sample": "Hey, I'm running about 10 minutes late. I'll be there soon."
+          "sample": "Hey, I'm running like 10 minutes late. I'll be there soon."
         }
       }
     },
     "work": {
-      "eyebrow": "Work correspondence",
-      "title": "Work voice.",
-      "desc": "Used in Slack, LinkedIn, and recognized work chat surfaces.",
       "preview": {
         "sender": "Alex",
-        "time": "2:14 PM",
-        "rawSample": "reviewed the doc um a couple changes are still needed uh tighten the intro and update the footer links"
+        "time": "2:14 PM"
       },
       "cards": {
         "direct": {
           "title": "Direct",
-          "desc": "Short and to the point.",
           "sample": "Reviewed the doc. A couple changes are still needed: tighten the intro and update the footer links."
         },
         "friendly": {
-          "title": "Enthusiastic",
-          "desc": "Upbeat and warm.",
+          "title": "Enthusiastic!",
           "sample": "I reviewed the doc and it's looking really close! A couple changes are still needed, mostly the intro and footer links."
         },
         "formal": {
-          "title": "Formal",
-          "desc": "Formal and full.",
+          "title": "Formal.",
           "sample": "I reviewed the document. A few revisions are still required, particularly in the introduction and footer links."
         },
         "off": {
           "title": "Off",
-          "desc": "No styling — just clean text.",
-          "sample": "I reviewed the doc. A couple changes are still needed: tighten the intro and update the footer links."
+          "sample": "Reviewed the doc. A couple changes are still needed. Tighten the intro and update the footer links."
         }
       }
     },
     "email": {
-      "eyebrow": "Emails",
-      "title": "Email voice.",
-      "desc": "Used in Gmail, Outlook, Apple Mail, and Proton.",
       "preview": {
         "to": "Sam",
-        "subject": "Thursday meeting + next steps",
-        "rawSample": "hi sam um just confirming we're still on for thursday at 2 uh i'll send the revised plan tomorrow morning let me know if you want anything else added thanks"
+        "subject": "Thursday meeting + next steps"
       },
       "cards": {
         "casual": {
           "title": "Casual",
-          "desc": "Short and conversational.",
           "sample": "Hi Sam,\n\nJust confirming we're still on for Thursday at 2. I'll send the revised plan tomorrow morning. Let me know if you want anything else added.\n\nThanks,"
         },
         "warm": {
           "title": "Warm",
-          "desc": "Smooth and tactful.",
           "sample": "Hi Sam,\n\nJust confirming that we're still set for Thursday at 2. I'll send over the revised plan tomorrow morning, and I'm happy to add anything else you'd like covered.\n\nThanks,"
         },
         "formal": {
-          "title": "Formal",
-          "desc": "Formal and structured.",
+          "title": "Formal.",
           "sample": "Hi Sam,\n\nI'm writing to confirm our meeting on Thursday at 2:00 PM. I will send the revised plan tomorrow morning. Please let me know if there is anything else you would like included.\n\nThank you,"
         },
         "off": {
           "title": "Off",
-          "desc": "No email formatting — just clean text.",
           "sample": "Hi Sam, just confirming we're still on for Thursday at 2. I'll send the revised plan tomorrow morning. Let me know if you want anything else added. Thanks."
         }
       }
     },
     "everythingElse": {
-      "eyebrow": "Everything else",
-      "title": "Everything else.",
-      "desc": "Anywhere that isn't a chat or email.",
-      "preview": {
-        "rawSample": "just pushed the fix uh should be good to test now"
-      },
       "cards": {
         "casual": {
-          "title": "Casual",
-          "desc": "Relaxed and light.",
+          "title": "casual",
           "sample": "just pushed the fix, should be good to test now"
         },
         "neutral": {
           "title": "Neutral",
-          "desc": "Clean and balanced.",
-          "sample": "Just pushed the fix. Should be good to test now."
+          "sample": "Just pushed the fix. It should be good to test now."
         },
         "professional": {
-          "title": "Professional",
-          "desc": "Polished and composed.",
+          "title": "Professional.",
           "sample": "I've pushed the fix; it should be ready to test now."
         },
         "off": {
           "title": "Off",
-          "desc": "No styling — just clean text.",
           "sample": "Just pushed the fix. Should be good to test now."
         }
       }
