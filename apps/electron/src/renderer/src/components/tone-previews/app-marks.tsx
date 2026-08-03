@@ -172,10 +172,6 @@ function resolveSiteAlias(host: string): AppMarkId | null {
   return null;
 }
 
-export function getAppMarkLabel(id: AppMarkId): string {
-  return APP_MARKS[id].label;
-}
-
 export function resolveBuiltInAppMarkFromAppMatch(
   raw: string,
 ): AppMarkId | null {
@@ -218,11 +214,9 @@ function resolveAssignmentMark(
 
 function MarkImage({
   src,
-  label,
   className,
 }: {
   src: string;
-  label: string;
   className?: string;
 }): React.JSX.Element {
   const [failed, setFailed] = useState(false);
@@ -242,7 +236,6 @@ function MarkImage({
       alt=""
       loading="lazy"
       referrerPolicy="no-referrer"
-      aria-label={label}
       className={cn("object-contain", className)}
       onError={() => setFailed(true)}
     />
@@ -347,11 +340,7 @@ export function RouteMark({
         onExit={onExit}
       >
         {builtIn.src ? (
-          <MarkImage
-            src={builtIn.src}
-            label={builtIn.label}
-            className={builtIn.imageClassName}
-          />
+          <MarkImage src={builtIn.src} className={builtIn.imageClassName} />
         ) : builtIn.art ? (
           <svg
             viewBox="0 0 24 24"
@@ -409,18 +398,6 @@ export function RouteMark({
   );
 }
 
-export function AppMark({
-  id,
-  size = 30,
-  className,
-}: {
-  id: AppMarkId;
-  size?: number;
-  className?: string;
-}): React.JSX.Element {
-  return <RouteMark id={id} size={size} className={className} />;
-}
-
 export function AppMarkRow({
   ids,
   assignments = [],
@@ -444,7 +421,7 @@ export function AppMarkRow({
   ];
 
   return (
-    <div className={cn("space-y-2", className)}>
+    <div className={cn("relative", className)}>
       <div className="flex flex-wrap items-center gap-2">
         {entries.map((entry) =>
           "id" in entry ? (
@@ -469,9 +446,11 @@ export function AppMarkRow({
         )}
         {trailing}
       </div>
-      <div className="text-muted-foreground min-h-[16px] text-[11px] leading-none">
-        {activeLabel ?? "\u00a0"}
-      </div>
+      {activeLabel ? (
+        <div className="text-muted-foreground pointer-events-none absolute top-full left-0 z-10 mt-1 text-[11px] leading-4">
+          {activeLabel}
+        </div>
+      ) : null}
     </div>
   );
 }

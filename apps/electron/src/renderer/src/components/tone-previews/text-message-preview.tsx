@@ -1,33 +1,20 @@
-import { cn } from "@renderer/lib/utils";
+import { useTranslation } from "react-i18next";
 
 export function TextMessagePreview({
   sample,
-  selected,
 }: {
   sample: string;
-  selected: boolean;
 }): React.JSX.Element {
+  const { t } = useTranslation();
+
   return (
-    <div className="bg-background/75 rounded-[18px] border border-border/80 px-3 py-3">
+    <div className="flex flex-col gap-1.5 px-4 py-4">
+      <p className="text-muted-foreground text-center text-[10px] leading-4">
+        {t("tone.personal.preview.time")}
+      </p>
       <div className="flex justify-end">
-        <div
-          className={cn(
-            "relative max-w-[27ch] rounded-[20px] border px-4 py-3 text-[14px] leading-[1.45] shadow-none",
-            selected
-              ? "border-primary/35 bg-accent text-accent-foreground"
-              : "border-border bg-card text-foreground",
-          )}
-        >
-          <span
-            aria-hidden="true"
-            className={cn(
-              "absolute right-[-5px] bottom-3 h-3 w-3 rotate-45 rounded-[3px] border",
-              selected
-                ? "border-primary/35 bg-accent"
-                : "border-border bg-card",
-            )}
-          />
-          <span className="relative block">{sample}</span>
+        <div className="max-w-[min(78%,28rem)] rounded-[20px] rounded-br-[7px] bg-sky-600 px-4 py-2.5 text-[14px] leading-[1.45] text-white shadow-sm dark:bg-sky-500">
+          {sample}
         </div>
       </div>
     </div>

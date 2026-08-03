@@ -49,7 +49,7 @@ import { SETTINGS_QUERY_KEY, settingsQueryOptions } from "@renderer/lib/query";
 import { cn } from "@renderer/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import {
@@ -58,7 +58,7 @@ import {
   DEFAULT_CLEANUP_PERSONAL_TONE,
   DEFAULT_CLEANUP_WORK_TONE,
 } from "../../../shared/cleanup-tone-settings";
-import { SETTINGS_KEYS } from "../../../shared/settings-keys";
+import { SETTINGS_KEYS, type SettingsKey } from "../../../shared/settings-keys";
 import { PageHeader, PageShell } from "./models/page-chrome";
 import type { ConfiguredModel } from "./models/types";
 
@@ -67,7 +67,7 @@ type ToneTab =
   | Exclude<CleanupToneDestination, "overall">
   | "everythingElse";
 
-const TONE_TABS: readonly [ToneTab, string][] = [
+const TONE_TABS: readonly (readonly [ToneTab, string])[] = [
   ["cleanup", "tone.tabs.cleanup"],
   ["personal", "tone.tabs.personal"],
   ["work", "tone.tabs.work"],
@@ -75,12 +75,22 @@ const TONE_TABS: readonly [ToneTab, string][] = [
   ["everythingElse", "tone.tabs.everythingElse"],
 ];
 
+const TONE_DESCRIPTION_KEYS: Record<ToneTab, string> = {
+  cleanup: "tone.cleanup.desc",
+  personal: "tone.personal.desc",
+  work: "tone.work.desc",
+  email: "tone.email.desc",
+  everythingElse: "tone.everythingElse.desc",
+};
+
+const TONE_TAB_DESCRIPTION_ID = "tone-tab-description";
+
 const isToneTab = (value: string): value is ToneTab =>
   TONE_TABS.some(([tab]) => tab === value);
 
 const FREESTYLE_CLOUD_PROVIDER = "freestyle-cloud";
-
-type CleanupCardValue = CleanupIntensity;
+const CONFIGURED_MODELS_QUERY_KEY = ["models", "configured"] as const;
+const TONE_PREVIEW_RESET_DELAY_MS = 160;
 
 type ToneOption<T extends string> = {
   value: T;
@@ -89,7 +99,7 @@ type ToneOption<T extends string> = {
   sampleKey: string;
 };
 
-const CLEANUP_OPTIONS: ToneOption<CleanupCardValue>[] = [
+const CLEANUP_OPTIONS: readonly ToneOption<CleanupIntensity>[] = [
   {
     value: "low",
     titleKey: "tone.cleanup.cards.low.title",
@@ -112,7 +122,7 @@ const CLEANUP_OPTIONS: ToneOption<CleanupCardValue>[] = [
   },
 ];
 
-const PERSONAL_OPTIONS: ToneOption<CleanupPersonalTone>[] = [
+const PERSONAL_OPTIONS: readonly ToneOption<CleanupPersonalTone>[] = [
   {
     value: "polished",
     titleKey: "tone.personal.cards.polished.title",
@@ -135,7 +145,7 @@ const PERSONAL_OPTIONS: ToneOption<CleanupPersonalTone>[] = [
   },
 ];
 
-const WORK_OPTIONS: ToneOption<CleanupWorkTone>[] = [
+const WORK_OPTIONS: readonly ToneOption<CleanupWorkTone>[] = [
   {
     value: "direct",
     titleKey: "tone.work.cards.direct.title",
@@ -158,7 +168,7 @@ const WORK_OPTIONS: ToneOption<CleanupWorkTone>[] = [
   },
 ];
 
-const EMAIL_OPTIONS: ToneOption<CleanupEmailTone>[] = [
+const EMAIL_OPTIONS: readonly ToneOption<CleanupEmailTone>[] = [
   {
     value: "casual",
     titleKey: "tone.email.cards.casual.title",
@@ -181,7 +191,7 @@ const EMAIL_OPTIONS: ToneOption<CleanupEmailTone>[] = [
   },
 ];
 
-const OVERALL_OPTIONS: ToneOption<CleanupOverallTone>[] = [
+const OVERALL_OPTIONS: readonly ToneOption<CleanupOverallTone>[] = [
   {
     value: "casual",
     titleKey: "tone.everythingElse.cards.casual.title",
@@ -239,7 +249,7 @@ export default function TonePage(): React.JSX.Element {
   const settingsQuery = useQuery(settingsQueryOptions());
 
   const configuredQuery = useQuery({
-    queryKey: ["models", "configured"],
+    queryKey: CONFIGURED_MODELS_QUERY_KEY,
     queryFn: async () => {
       const res = await getClient().api.models.configured.$get();
       if (!res.ok) throw new Error("Failed to load configured models");
@@ -250,13 +260,10 @@ export default function TonePage(): React.JSX.Element {
   const loading = settingsQuery.isLoading || configuredQuery.isLoading;
 
   // Whether a default cleanup (LLM) model is configured — drives the banners.
-  const hasCleanupModel = useMemo(
-    () =>
-      (configuredQuery.data ?? []).some(
-        (model) => model.type === "llm" && model.is_default === 1,
-      ),
-    [configuredQuery.data],
+  const hasCleanupModel = (configuredQuery.data ?? []).some(
+    (model) => model.type === "llm" && model.is_default === 1,
   );
+  const toneControlsDisabled = !llmCleanup || !hasCleanupModel;
 
   // Seed editable tone/cleanup state from persisted settings once. Save
   // handlers update local state directly, so we don't re-seed on later
@@ -299,12 +306,14 @@ export default function TonePage(): React.JSX.Element {
     () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY }),
-        queryClient.invalidateQueries({ queryKey: ["models", "configured"] }),
+        queryClient.invalidateQueries({
+          queryKey: CONFIGURED_MODELS_QUERY_KEY,
+        }),
       ]),
     [queryClient],
   );
 
-  const saveSetting = useCallback(async (key: string, value: string) => {
+  const saveSetting = useCallback(async (key: SettingsKey, value: string) => {
     // The Hono client does not throw on non-2xx — surface server rejections so
     // callers' .catch handlers fire (and "Saved" state isn't shown on failure).
     const res = await getClient().api.settings[":key"].$put({
@@ -368,7 +377,7 @@ export default function TonePage(): React.JSX.Element {
   }, [cloudAuth, reload, saveSetting, usingCloud]);
 
   const selectCleanupMode = useCallback(
-    (next: CleanupCardValue) => {
+    (next: CleanupIntensity) => {
       // Enablement lives on the Models page now — this only picks the strength.
       if (next === "custom" && cleanupIntensity !== "custom") {
         const seed =
@@ -472,12 +481,10 @@ export default function TonePage(): React.JSX.Element {
     [assignments, persistAssignments],
   );
 
-  const cleanupMode: CleanupCardValue = cleanupIntensity;
-
   // Each tab shows its own current value, so the tab row doubles as the summary
   // of every tone setting — no need to open all five to see where you stand.
   const tabValues: Record<ToneTab, string> = {
-    cleanup: optionTitle(t, CLEANUP_OPTIONS, cleanupMode),
+    cleanup: optionTitle(t, CLEANUP_OPTIONS, cleanupIntensity),
     personal: optionTitle(t, PERSONAL_OPTIONS, personalTone),
     work: optionTitle(t, WORK_OPTIONS, workTone),
     email: optionTitle(t, EMAIL_OPTIONS, emailTone),
@@ -513,8 +520,10 @@ export default function TonePage(): React.JSX.Element {
 
         <Tabs
           value={activeTab}
-          onValueChange={(value) => setActiveTab(value as ToneTab)}
-          className="mt-7 gap-0"
+          onValueChange={(value) => {
+            if (isToneTab(value)) setActiveTab(value);
+          }}
+          className="mt-8 gap-0"
         >
           <TabsList
             variant="line"
@@ -527,6 +536,9 @@ export default function TonePage(): React.JSX.Element {
               <TabsTrigger
                 key={value}
                 value={value}
+                aria-describedby={
+                  activeTab === value ? TONE_TAB_DESCRIPTION_ID : undefined
+                }
                 className="h-auto flex-none flex-col items-start gap-[3px] rounded-none px-3.5 pt-0 pb-2.5 text-[13px] first:pl-0 after:bottom-[-1px]"
               >
                 {t(key)}
@@ -544,9 +556,16 @@ export default function TonePage(): React.JSX.Element {
             ))}
           </TabsList>
 
+          <p
+            id={TONE_TAB_DESCRIPTION_ID}
+            className="text-foreground mt-4 max-w-[65ch] text-[14px] leading-5 font-medium tracking-[-0.01em]"
+          >
+            {t(TONE_DESCRIPTION_KEYS[activeTab])}
+          </p>
+
           <TabsContent value="cleanup">
             <CleanupTonePanel
-              value={cleanupMode}
+              value={cleanupIntensity}
               onChange={selectCleanupMode}
               cleanupCustomPrompt={cleanupCustomPrompt}
               onCustomPromptChange={setCleanupCustomPrompt}
@@ -554,6 +573,7 @@ export default function TonePage(): React.JSX.Element {
               onSaveCustomPrompt={() => void saveCleanupCustomPrompt()}
               onResetToPreset={resetToPresetMode}
               savingCustomPrompt={savingCustomPrompt}
+              disabled={toneControlsDisabled}
             />
           </TabsContent>
 
@@ -572,6 +592,7 @@ export default function TonePage(): React.JSX.Element {
               allAssignments={assignments}
               onAddAssignment={addAssignment}
               onRemoveAssignment={removeAssignment}
+              disabled={toneControlsDisabled}
             />
           </TabsContent>
 
@@ -588,6 +609,7 @@ export default function TonePage(): React.JSX.Element {
               allAssignments={assignments}
               onAddAssignment={addAssignment}
               onRemoveAssignment={removeAssignment}
+              disabled={toneControlsDisabled}
             />
           </TabsContent>
 
@@ -604,6 +626,7 @@ export default function TonePage(): React.JSX.Element {
               allAssignments={assignments}
               onAddAssignment={addAssignment}
               onRemoveAssignment={removeAssignment}
+              disabled={toneControlsDisabled}
             />
           </TabsContent>
 
@@ -622,6 +645,7 @@ export default function TonePage(): React.JSX.Element {
               allAssignments={assignments}
               onAddAssignment={addAssignment}
               onRemoveAssignment={removeAssignment}
+              disabled={toneControlsDisabled}
             />
           </TabsContent>
         </Tabs>
@@ -632,7 +656,7 @@ export default function TonePage(): React.JSX.Element {
 
 function optionTitle<T extends string>(
   t: (key: string) => string,
-  options: ToneOption<T>[],
+  options: readonly ToneOption<T>[],
   value: T,
 ): string {
   const option = options.find((o) => o.value === value) ?? options[0]!;
@@ -644,36 +668,43 @@ function optionTitle<T extends string>(
 // ---------------------------------------------------------------------------
 
 /**
- * Pointing at an option shows it in the example; the committed value comes back
- * when the pointer leaves. Restoring is delayed so that travelling across the
- * gap between two chips doesn't flash the committed sample in between.
+ * Interacting with an option shows it in the example; the committed value comes
+ * back when the pointer or keyboard focus leaves. Restoring is delayed so that
+ * travelling across the gap between two chips doesn't flash the committed
+ * sample in between.
  */
-function useHoverPreview<T extends string>(
+function useTonePreview<T extends string>(
   committed: T,
 ): [T, (value: T | null) => void] {
-  const [hovered, setHovered] = useState<T | null>(null);
+  const [previewed, setPreviewed] = useState<T | null>(null);
   const restoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
     () => () => {
-      if (restoreTimer.current) clearTimeout(restoreTimer.current);
+      if (restoreTimer.current !== null) {
+        clearTimeout(restoreTimer.current);
+        restoreTimer.current = null;
+      }
     },
     [],
   );
 
   const preview = useCallback((value: T | null) => {
-    if (restoreTimer.current) {
+    if (restoreTimer.current !== null) {
       clearTimeout(restoreTimer.current);
       restoreTimer.current = null;
     }
     if (value === null) {
-      restoreTimer.current = setTimeout(() => setHovered(null), 160);
+      restoreTimer.current = setTimeout(() => {
+        restoreTimer.current = null;
+        setPreviewed(null);
+      }, TONE_PREVIEW_RESET_DELAY_MS);
       return;
     }
-    setHovered(value);
+    setPreviewed(value);
   }, []);
 
-  return [hovered ?? committed, preview];
+  return [previewed ?? committed, preview];
 }
 
 function ToneChips<T extends string>({
@@ -685,7 +716,7 @@ function ToneChips<T extends string>({
   disabled,
 }: {
   label: string;
-  options: ToneOption<T>[];
+  options: readonly ToneOption<T>[];
   value: T;
   onChange: (value: T) => void;
   onPreview: (value: T | null) => void;
@@ -697,11 +728,14 @@ function ToneChips<T extends string>({
       type="single"
       value={value}
       // Radix allows deselecting the active item; a tone must always be set.
-      onValueChange={(next) => next && onChange(next as T)}
+      onValueChange={(next) => {
+        const option = options.find((candidate) => candidate.value === next);
+        if (option) onChange(option.value);
+      }}
       aria-label={label}
       disabled={disabled}
       spacing={1.5}
-      className={cn("mt-5 flex-wrap", disabled && "opacity-50")}
+      className="mt-6 flex-wrap"
       onMouseLeave={() => onPreview(null)}
     >
       {options.map((option) => (
@@ -732,12 +766,12 @@ function ToneStage<T extends string>({
   shown,
   render,
 }: {
-  options: ToneOption<T>[];
+  options: readonly ToneOption<T>[];
   shown: T;
   render: (option: ToneOption<T>) => React.ReactNode;
 }): React.JSX.Element {
   return (
-    <div className="mt-5 grid">
+    <div className="mt-6 grid">
       {options.map((option) => {
         const visible = option.value === shown;
         return (
@@ -850,8 +884,8 @@ function CleanupTonePanel({
   savingCustomPrompt,
   disabled,
 }: {
-  value: CleanupCardValue;
-  onChange: (value: CleanupCardValue) => void;
+  value: CleanupIntensity;
+  onChange: (value: CleanupIntensity) => void;
   cleanupCustomPrompt: string;
   onCustomPromptChange: (value: string) => void;
   customPromptDirty: boolean;
@@ -861,7 +895,7 @@ function CleanupTonePanel({
   disabled?: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
-  const [shown, preview] = useHoverPreview(value);
+  const [shown, preview] = useTonePreview(value);
 
   return (
     <div>
@@ -877,9 +911,7 @@ function CleanupTonePanel({
       {value === "custom" ? (
         // Committed to custom rules: the editor replaces the example, since
         // there is nothing to preview until the rules are written.
-        <div
-          className={cn("mt-5", disabled && "pointer-events-none opacity-50")}
-        >
+        <div className="mt-6">
           <Textarea
             value={cleanupCustomPrompt}
             maxLength={CLEANUP_CUSTOM_PROMPT_MAX}
@@ -928,9 +960,7 @@ function CleanupTonePanel({
         <ToneStage
           options={CLEANUP_OPTIONS}
           shown={shown}
-          render={(option) => (
-            <CleanupPreview result={t(option.sampleKey)} selected={false} />
-          )}
+          render={(option) => <CleanupPreview result={t(option.sampleKey)} />}
         />
       )}
     </div>
@@ -956,7 +986,7 @@ function SubsetTonePanel<T extends string>({
   label: string;
   apps: readonly AppMarkId[];
   value: T;
-  options: ToneOption<T>[];
+  options: readonly ToneOption<T>[];
   onChange: (value: T) => void;
   assignments: CleanupAppAssignment[];
   allAssignments: CleanupAppAssignment[];
@@ -965,7 +995,7 @@ function SubsetTonePanel<T extends string>({
   disabled?: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
-  const [shown, preview] = useHoverPreview(value);
+  const [shown, preview] = useTonePreview(value);
   // "Everything else" is the catch-all destination — it owns whatever nothing
   // else claims, so there is nothing to route into it.
   const canManageRoutes = destination !== "overall";
@@ -975,16 +1005,15 @@ function SubsetTonePanel<T extends string>({
     // "Off" applies no destination styling, so it shows as plain text rather
     // than dressed in the app's chrome.
     if (option.value === "off" || previewKind === "overall") {
-      return <NotePreview sample={sample} selected={false} />;
+      return <NotePreview sample={sample} />;
     }
     if (previewKind === "personal") {
-      return <TextMessagePreview sample={sample} selected={false} />;
+      return <TextMessagePreview sample={sample} />;
     }
     if (previewKind === "work") {
       return (
         <WorkChatPreview
           sample={sample}
-          selected={false}
           sender={t("tone.work.preview.sender")}
           time={t("tone.work.preview.time")}
         />
@@ -993,7 +1022,6 @@ function SubsetTonePanel<T extends string>({
     return (
       <EmailPreview
         body={sample}
-        selected={false}
         to={t("tone.email.preview.to")}
         subject={t("tone.email.preview.subject")}
       />
@@ -1007,7 +1035,7 @@ function SubsetTonePanel<T extends string>({
           ids={apps}
           assignments={assignments}
           size={26}
-          className="mt-5"
+          className="mt-6"
           trailing={
             canManageRoutes ? (
               <AppAssignments
@@ -1031,7 +1059,9 @@ function SubsetTonePanel<T extends string>({
         disabled={disabled}
       />
 
-      <ToneStage options={options} shown={shown} render={renderSurface} />
+      {shown !== "off" ? (
+        <ToneStage options={options} shown={shown} render={renderSurface} />
+      ) : null}
     </div>
   );
 }

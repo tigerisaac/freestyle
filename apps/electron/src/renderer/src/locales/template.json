@@ -383,13 +383,10 @@
       "everythingElse": "Everything else"
     },
     "cleanup": {
-      "currentMode": "Current mode",
-      "toggleLabel": "Cleanup",
-      "strengthLabel": "Strength",
+      "desc": "Controls how much of your transcript Freestyle cleans up before it lands.",
       "noModelTitle": "No cleanup model selected.",
       "noModelDesc": "Choose one in Models. These settings apply as soon as a model is configured.",
       "noModelCta": "Open Models",
-      "preview": {},
       "cards": {
         "low": {
           "title": "Low",
@@ -410,15 +407,8 @@
       }
     },
     "apps": {
-      "addedLabel": "Also routed here",
       "add": "Add route",
-      "placeholder": "App name or website",
-      "useCurrent": "Use current app",
-      "detecting": "Detecting…",
-      "confirm": "Add",
-      "cancel": "Cancel",
       "remove": "Remove",
-      "hint": "Add any app or website that should use this tone.",
       "dialogTitle": "Add routes",
       "currentRoutes": "Added here",
       "currentRoute": "Already added here",
@@ -437,6 +427,10 @@
       "kindSite": "Website"
     },
     "personal": {
+      "desc": "Controls the writing style for personal messages and chat apps.",
+      "preview": {
+        "time": "Today 2:14 PM"
+      },
       "cards": {
         "polished": {
           "title": "Polished",
@@ -457,6 +451,7 @@
       }
     },
     "work": {
+      "desc": "Controls the writing style for work chats and professional apps.",
       "preview": {
         "sender": "Alex",
         "time": "2:14 PM"
@@ -481,6 +476,7 @@
       }
     },
     "email": {
+      "desc": "Controls the writing style for email apps and clients.",
       "preview": {
         "to": "Sam",
         "subject": "Thursday meeting + next steps"
@@ -505,6 +501,7 @@
       }
     },
     "everythingElse": {
+      "desc": "Controls the default writing style for anything not covered above.",
       "cards": {
         "casual": {
           "title": "Casual",
