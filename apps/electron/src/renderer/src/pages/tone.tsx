@@ -518,7 +518,10 @@ export default function TonePage(): React.JSX.Element {
         >
           <TabsList
             variant="line"
-            className="border-border h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b bg-transparent p-0"
+            // The list variant pins a horizontal tabs list to h-8 through a
+            // group-data selector, which outranks a plain h-auto — with two
+            // lines per tab that crops the label, and overflow-x hides it.
+            className="border-border group-data-horizontal/tabs:h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b bg-transparent p-0"
           >
             {TONE_TABS.map(([value, key]) => (
               <TabsTrigger
