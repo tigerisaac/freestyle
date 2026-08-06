@@ -1,7 +1,6 @@
 import { EASE_OUT, SPRING_LAYOUT } from "@renderer/lib/ease";
 import { cn } from "@renderer/lib/utils";
 import {
-  Check,
   Circle,
   FileText,
   Globe2,
@@ -24,6 +23,61 @@ import type {
   AgentSearchResult,
 } from "./types";
 
+/**
+ * The mark a step wears once it is done.
+ *
+ * The other two states already speak in rings — pending is a hollow circle,
+ * active a pulsing core — so completion is that ring closing rather than a
+ * glyph borrowed from a form control. The arc sweeps shut and stops just
+ * short, leaving a gap at the upper right where the tick's long arm exits;
+ * the tick then strokes in through it. That break is doing the work here.
+ * A closed ring around a check is a checkbox at any size, and at 16px the
+ * gap is the only thing with room enough to say otherwise.
+ */
+function CompletionMark() {
+  const reduce = useReducedMotion() ?? false;
+
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="size-4" aria-hidden="true">
+      <m.circle
+        cx="8"
+        cy="8"
+        r="6.15"
+        stroke="currentColor"
+        strokeWidth="1.15"
+        strokeLinecap="round"
+        opacity={0.5}
+        // pathOffset puts the gap 0.875 of the way clockwise from 3 o'clock —
+        // the 1:30 position the tick points through. It rides in the targets
+        // rather than as a prop because motion only types the path values as
+        // animatable ones.
+        initial={reduce ? false : { pathLength: 0, pathOffset: 0.94 }}
+        animate={{ pathLength: 0.87, pathOffset: 0.94 }}
+        transition={
+          reduce ? { duration: 0 } : { duration: 0.42, ease: EASE_OUT }
+        }
+      />
+      <m.path
+        d="M5.3 8.5 7.1 10.3 10.85 6.05"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        initial={reduce ? false : { pathLength: 0, opacity: 0 }}
+        animate={{ pathLength: 1, opacity: 1 }}
+        transition={
+          reduce
+            ? { duration: 0 }
+            : {
+                pathLength: { duration: 0.3, ease: EASE_OUT, delay: 0.14 },
+                opacity: { duration: 0.12, delay: 0.14 },
+              }
+        }
+      />
+    </svg>
+  );
+}
+
 function StepRow({ item }: { item: AgentActivityStep }) {
   const state = item.status ?? "complete";
 
@@ -34,7 +88,7 @@ function StepRow({ item }: { item: AgentActivityStep }) {
         className="mt-0.5 grid size-4 shrink-0 place-items-center text-muted-foreground/70"
       >
         {state === "complete" ? (
-          <Check className="size-4" strokeWidth={1.8} />
+          <CompletionMark />
         ) : state === "active" ? (
           <span className="relative grid size-3 place-items-center">
             <m.span
