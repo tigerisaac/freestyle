@@ -8,7 +8,13 @@ export const SETTINGS_KEYS = {
   cleanupPersonalTone: "cleanup_personal_tone",
   cleanupWorkTone: "cleanup_work_tone",
   remixHotkey: "remix_hotkey",
+  remixEnabled: "remix_enabled",
   remixBarEnabled: "remix_bar_enabled",
+  // The writing-skills layer. Off by default: phase 3 ships it behind a
+  // flag to internal users until the quality gates are measured.
+  remixWritingSkills: "remix_writing_skills",
+  /** JSON array of SkillCategory the user switched off. */
+  remixDisabledSkillCategories: "remix_disabled_skill_categories",
   freestyleCloudPanelExpanded: "freestyle_cloud_panel_expanded",
   hotkey: "hotkey",
   hotkeyMode: "hotkey_mode",

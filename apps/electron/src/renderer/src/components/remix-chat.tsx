@@ -8,6 +8,12 @@ import { MessageScroller } from "@renderer/components/agents/message-scroller";
 import { capture } from "@renderer/lib/analytics";
 import { apiFetch } from "@renderer/lib/api";
 import {
+  beginRemixTurn,
+  createSession,
+  type RemixHost,
+  runRemixTool,
+} from "@renderer/lib/remix-composites";
+import {
   DefaultChatTransport,
   type DynamicToolUIPart,
   getToolOrDynamicToolName,
@@ -23,6 +29,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -30,9 +37,15 @@ import {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { RemixSelectionPayload } from "../../../shared/remix";
+import { ThinkingOrb } from "thinking-orbs";
+import {
+  type RemixSelectionPayload,
+  targetFromSelection,
+} from "../../../shared/remix";
+import { SETTINGS_KEYS } from "../../../shared/settings-keys";
 import { FreestyleMark } from "./freestyle-mark";
 import {
+  REMIX_CHAT_MAX_HEIGHT,
   REMIX_CHAT_STRIP,
   REMIX_CHAT_SURFACE,
   type RemixChatAnchor,
@@ -75,9 +88,12 @@ export interface RemixChatProps {
   initialInstruction: string | null;
   minimized: boolean;
   onMiniHeightChange?: (height: number) => void;
+  /** Natural height of the full card so the surface can size to its thread. */
+  onHeightChange?: (height: number) => void;
   anchor: RemixChatAnchor;
   onExpand: () => void;
-  onMinimize: () => void;
+  /** Lets the owner keep a live or answered run on screen as the pill. */
+  onMinimize: (options?: { busy?: boolean; hasContent?: boolean }) => void;
   onClose: () => void;
 }
 
@@ -88,6 +104,12 @@ export function RemixChat(props: RemixChatProps): React.JSX.Element {
   const [initialInstruction, setInitialInstruction] = useState(
     props.initialInstruction,
   );
+
+  // Surface sizes to this until natural-height measurement lands with the
+  // thinking-orbs polish. Cap keeps the pill from jumping to an empty 560px.
+  useEffect(() => {
+    props.onHeightChange?.(REMIX_CHAT_MAX_HEIGHT);
+  }, [props.onHeightChange]);
 
   // Pill is focusable:false; follow the card so the composer can take keyboard.
   useEffect(() => {
@@ -185,6 +207,194 @@ export function RemixChat(props: RemixChatProps): React.JSX.Element {
   );
 }
 
+/**
+ * The pill's status mark, at the one size both states share.
+ *
+ * `MINI_MARK` is the box; everything drawn into it is centred and clipped to
+ * it, so the running orb and the settled check occupy identical space and the
+ * line of text beside them never shifts when a run lands.
+ */
+const MINI_MARK = 22;
+
+/** The one entrance curve the pill's marks share. */
+const REMIX_EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+
+/**
+ * The running orb, at its native scale.
+ *
+ * Not the 64 preset scaled down. Supersampling looks right in the backing
+ * store and wrong on screen: the compositor resolves a CSS-scaled canvas with
+ * bilinear filtering, and a field of sub-pixel dots run through that shimmers
+ * — grainier than the coarse preset it was meant to fix. Canvas pixels map
+ * 1:1 to device pixels here, which is the only arrangement that cannot alias.
+ */
+function MiniOrb({ state }: { state: "composing" | "searching" }) {
+  return (
+    <span className="remix-mini-mark">
+      <ThinkingOrb state={state} size={20} theme="dark" />
+    </span>
+  );
+}
+
+/** Arc close, then colour flood. One timeline, so neither leg can strand. */
+const SWEEP_ARC_MS = 150;
+const SWEEP_FLOOD_MS = 300;
+const SWEEP_TOTAL_MS = SWEEP_ARC_MS + SWEEP_FLOOD_MS;
+const SWEEP_ARC_END = SWEEP_ARC_MS / SWEEP_TOTAL_MS;
+
+function RestMark({ failed }: { failed: boolean }) {
+  const maskId = useId();
+  const arcRef = useRef<SVGCircleElement | null>(null);
+  const discRef = useRef<SVGRectElement | null>(null);
+  const circumference = 2 * Math.PI * 6.1;
+
+  /**
+   * The markup is the RESTING state — filled disc, spent arc — and the
+   * entrance is one `fill: "none"` timeline played over it.
+   *
+   * That direction is deliberate. Any fill mode that holds a keyframe leaves
+   * the mark showing the *opening* frame wherever the timeline cannot run: an
+   * occluded window freezes WAAPI at t=0, and the pill is occluded often. With
+   * no fill, a frozen or skipped animation degrades to the correct final look
+   * instead of an empty circle. Both legs ride one timeline for the same
+   * reason — a delayed second animation would strand the disc mid-sweep.
+   */
+  useLayoutEffect(() => {
+    const arc = arcRef.current;
+    const disc = discRef.current;
+    if (!arc || !disc) return;
+    if (
+      typeof window === "undefined" ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ===
+        true ||
+      // An occluded window does not advance WAAPI, and an animation parked at
+      // its first frame would leave the mark drawn as an empty circle. Nobody
+      // is watching an entrance they cannot see, so skip straight to settled.
+      document.hidden
+    ) {
+      return;
+    }
+    disc.style.transformOrigin = "8px 8px";
+    const options: KeyframeAnimationOptions = {
+      duration: SWEEP_TOTAL_MS,
+      fill: "none",
+    };
+    const running = [
+      arc.animate(
+        [
+          {
+            offset: 0,
+            opacity: 1,
+            strokeDashoffset: `${circumference}`,
+            easing: REMIX_EASE_OUT,
+          },
+          {
+            offset: SWEEP_ARC_END,
+            opacity: 1,
+            strokeDashoffset: "0",
+            easing: "ease-out",
+          },
+          { offset: SWEEP_ARC_END + 0.09, opacity: 0, strokeDashoffset: "0" },
+          { offset: 1, opacity: 0, strokeDashoffset: "0" },
+        ],
+        options,
+      ),
+      disc.animate(
+        [
+          {
+            offset: 0,
+            transform: "scale(0.42)",
+            opacity: 0,
+            filter: "blur(1.4px)",
+            easing: "linear",
+          },
+          {
+            offset: SWEEP_ARC_END,
+            transform: "scale(0.42)",
+            opacity: 0,
+            filter: "blur(1.4px)",
+            // Overshoots a few percent and settles back. A straight ease-out
+            // landed the colour like a light switch, with nowhere for the
+            // impact to go; the blur resolving alongside keeps the arc and the
+            // disc reading as one object rather than two swapping places.
+            easing: "cubic-bezier(0.34, 1.16, 0.36, 1)",
+          },
+          {
+            offset: 0.75,
+            transform: "scale(1.055)",
+            opacity: 1,
+            filter: "blur(0px)",
+          },
+          { offset: 1, transform: "scale(1)", opacity: 1, filter: "blur(0px)" },
+        ],
+        options,
+      ),
+    ];
+    // Without this a re-mount stacks a second copy on the first.
+    return () => {
+      for (const animation of running) animation.cancel();
+    };
+  }, [circumference]);
+
+  const color = failed ? "rgba(224, 128, 95, 0.92)" : INK;
+  const glyph = failed ? (
+    <path
+      d="M 5.6 5.6 L 10.4 10.4 M 10.4 5.6 L 5.6 10.4"
+      stroke="#000"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      fill="none"
+    />
+  ) : (
+    <path
+      d="M 5.35 8.25 L 7.15 10.05 L 10.75 5.95"
+      stroke="#000"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  );
+
+  return (
+    <span className="remix-mini-mark">
+      <svg
+        width={MINI_MARK}
+        height={MINI_MARK}
+        viewBox="0 0 16 16"
+        aria-hidden="true"
+      >
+        <mask id={maskId}>
+          <rect width="16" height="16" fill="#000" />
+          <circle cx="8" cy="8" r="6.9" fill="#fff" />
+          {glyph}
+        </mask>
+        <circle
+          ref={arcRef}
+          cx="8"
+          cy="8"
+          r="6.1"
+          fill="none"
+          stroke={color}
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={0}
+          opacity={0}
+          transform="rotate(-90 8 8)"
+        />
+        <rect
+          ref={discRef}
+          width="16"
+          height="16"
+          fill={color}
+          mask={`url(#${maskId})`}
+        />
+      </svg>
+    </span>
+  );
+}
+
 function MiniStrip(props: {
   text: string;
   busy?: boolean;
@@ -200,12 +410,12 @@ function MiniStrip(props: {
     >
       <style>{REMIX_CHAT_CSS}</style>
       <div className="remix-mini" role="status" aria-live="polite">
-        <span
-          className="remix-mini-dot"
-          data-busy={props.busy === true}
-          data-failed={props.failed === true}
-        />
-        <span className="remix-mini-text">{props.text}</span>
+        {props.busy ? (
+          <MiniOrb state="composing" />
+        ) : (
+          <RestMark failed={props.failed === true} />
+        )}
+        <span className="remix-mini-line remix-mini-text">{props.text}</span>
       </div>
     </div>
   );
@@ -218,7 +428,7 @@ interface RemixThreadProps {
   minimized: boolean;
   anchor: RemixChatAnchor;
   onExpand: () => void;
-  onMinimize: () => void;
+  onMinimize: (options?: { busy?: boolean; hasContent?: boolean }) => void;
   onClose: () => void;
   onNewThread: () => void;
   onMiniHeightChange?: (height: number) => void;
@@ -234,8 +444,10 @@ interface ActionRow {
 const MINIMIZE_GRACE_MS = 380;
 const MINI_IDLE_DISMISS_MS = 7000;
 const MINI_SETTLED_DISMISS_MS = 3000;
-const MINI_STRIP_PAD = 24; // .remix-mini[data-full] vertical padding
-const MINI_STRIP_MAX = 316; // main's 340 window cap minus the chrome
+/** Vertical padding of the expanded pill. */
+const MINI_STRIP_PAD = 24;
+/** Main's 340 window cap, minus the chrome. */
+const MINI_STRIP_MAX = 316;
 
 function RemixThread(props: RemixThreadProps): React.JSX.Element {
   const { thread, minimized, anchor, onExpand, onMinimize, onClose } = props;
@@ -253,6 +465,98 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
     setLiveContext(props.context);
   }, [props.context]);
   const lastInstructionRef = useRef<string>("");
+
+  /**
+   * Which writing skills this user allows, travelling with every request.
+   *
+   * Read once into a ref rather than subscribed to: the value is only ever
+   * consulted at send time, and the pill has no React Query cache to share.
+   * Absent settings mean the layer stays off, which is the shipped default.
+   */
+  const skillPrefsRef = useRef<{
+    enabled: boolean;
+    disabledCategories?: string[];
+  }>({ enabled: false });
+  useEffect(() => {
+    let cancelled = false;
+    void apiFetch("/api/settings")
+      .then(async (res) => {
+        if (!res.ok) return;
+        const settings = (await res.json()) as Record<string, string>;
+        if (cancelled) return;
+        let disabled: string[] | undefined;
+        try {
+          const raw = settings[SETTINGS_KEYS.remixDisabledSkillCategories];
+          const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+          if (Array.isArray(parsed)) {
+            disabled = parsed.filter(
+              (entry): entry is string => typeof entry === "string",
+            );
+          }
+        } catch {
+          // A corrupt list means "nothing disabled", never a failed request.
+        }
+        skillPrefsRef.current = {
+          enabled: settings[SETTINGS_KEYS.remixWritingSkills] === "true",
+          disabledCategories: disabled,
+        };
+      })
+      .catch(() => {
+        // The layer stays off; the agent still runs without it.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+
+  /**
+   * What the model's tools actually do, and what it remembers between them.
+   *
+   * The session outlives a turn — its stale-target history is what lets a
+   * second write revise the first rather than land beside it — so it is a ref,
+   * reset per user-directed turn by `beginRemixTurn` rather than recreated.
+   */
+  const sessionRef = useRef(createSession());
+  const host = useMemo<RemixHost>(
+    () => ({
+      // Wrapped so every composite that looks at the document also refreshes
+      // the card's own idea of where the user is. The composites read context
+      // through this one call, so there is nowhere else to hook it.
+      remixGetContext: async () => {
+        const res = await window.api.remixGetContext();
+        if (res.ok) {
+          contextRef.current = {
+            text: res.selection,
+            target: res.target ?? targetFromSelection(res.selection),
+            appName: res.appName,
+            windowTitle: res.windowTitle,
+            url: res.url,
+            clipboard: res.clipboardPreview ?? null,
+            clipboardLength: res.clipboardLength ?? 0,
+            capturedAt: Date.now(),
+          };
+          setLiveContext(contextRef.current);
+        }
+        return res;
+      },
+      remixReadDocument: () => window.api.remixReadDocument(),
+      remixReadSurroundings: () => window.api.remixReadSurroundings(),
+      remixSelectAll: () => window.api.remixSelectAll(),
+      remixSelectText: (text, occurrence) =>
+        window.api.remixSelectText(text, occurrence),
+      remixCollapseSelection: () => window.api.remixCollapseSelection(),
+      remixCopy: () => window.api.remixCopy(),
+      remixGetClipboard: () => window.api.remixGetClipboard(),
+      remixSetClipboard: (text) => window.api.remixSetClipboard(text),
+      remixSetClipboardImage: (url) => window.api.remixSetClipboardImage(url),
+      remixPasteClipboard: () => window.api.remixPasteClipboard(),
+      remixPasteText: (text) => window.api.remixPasteText(text),
+      remixPasteImage: (url) => window.api.remixPasteImage(url),
+      remixUndo: () => window.api.remixUndo(),
+    }),
+    [],
+  );
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -284,18 +588,31 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
             messages,
             context: {
               selection: contextRef.current.text,
+              // Only the status travels — the text itself is `selection` —
+              // and it is what tells the agent that an empty target is a
+              // destination rather than a failure.
+              target: contextRef.current.target?.status,
               appName: contextRef.current.appName,
               windowTitle: contextRef.current.windowTitle,
               clipboard: contextRef.current.clipboard ?? null,
               clipboardLength: contextRef.current.clipboardLength ?? 0,
               capturedAt: contextRef.current.capturedAt,
             },
+            skills: skillPrefsRef.current,
           },
         }),
       }),
     [],
   );
 
+  /**
+   * Run one model-visible tool.
+   *
+   * The sequencing that used to live here — select, copy, collapse, paste, in
+   * the right order and never leaving a document fully selected — now lives in
+   * `remix-composites`, which is code that runs the same way every time and
+   * can refuse rather than guess. This is only the bridge to it.
+   */
   const executeTool = useCallback(
     async (toolCall: {
       toolName: string;
@@ -304,18 +621,13 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
     }): Promise<Record<string, unknown>> => {
       const name = toolCall.toolName;
       const input = (toolCall.input ?? {}) as Record<string, unknown>;
-      const str = (key: string): string =>
-        typeof input[key] === "string" ? (input[key] as string) : "";
-      const num = (key: string): number | undefined =>
-        typeof input[key] === "number" ? (input[key] as number) : undefined;
-      const badArgs = (expected: string): Record<string, unknown> => ({
-        ok: false,
-        reason: "bad-args",
-        expected,
-        received: JSON.stringify(toolCall.input)?.slice(0, 300) ?? "undefined",
-      });
-
-      const result = await runTool();
+      const result = await runRemixTool(
+        host,
+        sessionRef.current,
+        name,
+        input,
+        thread.threadId,
+      );
       if (import.meta.env.DEV) {
         console.log(
           `[remix] ${name}(${JSON.stringify(toolCall.input)?.slice(0, 400) ?? ""}) →`,
@@ -323,72 +635,17 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
         );
       }
       return result;
-
-      async function runTool(): Promise<Record<string, unknown>> {
-        switch (name) {
-          case "get_context": {
-            const res = await window.api.remixGetContext();
-            if (res.ok) {
-              contextRef.current = {
-                text: res.selection,
-                appName: res.appName,
-                windowTitle: res.windowTitle,
-                url: res.url,
-                clipboard: res.clipboardPreview ?? null,
-                clipboardLength: res.clipboardLength ?? 0,
-                capturedAt: Date.now(),
-              };
-              setLiveContext(contextRef.current);
-            }
-            return { ...res };
-          }
-          case "read_document":
-            return { ...(await window.api.remixReadDocument()) };
-          case "select_all":
-            return { ...(await window.api.remixSelectAll()) };
-          case "select_text":
-            if (!str("text")) return badArgs("{ text: string }");
-            return {
-              ...(await window.api.remixSelectText(
-                str("text"),
-                num("occurrence"),
-              )),
-            };
-          case "collapse_selection":
-            return { ...(await window.api.remixCollapseSelection()) };
-          case "copy":
-            return { ...(await window.api.remixCopy()) };
-          case "set_clipboard":
-            if (!str("text")) return badArgs("{ text: string }");
-            return { ...(await window.api.remixSetClipboard(str("text"))) };
-          case "set_clipboard_image":
-            if (!str("url")) return badArgs("{ url: string }");
-            return { ...(await window.api.remixSetClipboardImage(str("url"))) };
-          case "paste":
-            return { ...(await window.api.remixPasteClipboard()) };
-          case "undo":
-            return { ...(await window.api.remixUndo()) };
-          case "redo":
-            return { ...(await window.api.remixRedo()) };
-          case "press_key":
-            if (!str("key")) return badArgs("{ key: string }");
-            return {
-              ...(await window.api.remixPressKey(str("key"), num("times"))),
-            };
-          case "get_clipboard":
-            return { ...(await window.api.remixGetClipboard()) };
-          default:
-            return { ok: false, reason: `unknown tool: ${name}` };
-        }
-      }
     },
-    [],
+    [host, thread.threadId],
   );
   const { messages, sendMessage, addToolResult, status, stop, clearError } =
     useChat<UIMessage>({
       id: `remix-thread-${thread.threadId}`,
       messages: thread.messages,
       transport,
+      // Long feedback streams otherwise re-parse markdown on every token and
+      // stutter the pill; ~50ms keeps the text feeling live without thrashing.
+      experimental_throttle: 50,
       sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
       onToolCall: async ({ toolCall }) => {
         const output = await executeTool(
@@ -420,6 +677,12 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
     });
 
   const busy = status === "submitted" || status === "streaming";
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  // Anything the user would want to read after walking away. Same ref
+  // treatment as `busy`, and for the same reason.
+  const hasContentRef = useRef(false);
+  hasContentRef.current = messages.length > 0;
 
   const narrating = useMemo(
     () =>
@@ -518,7 +781,13 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
       minimizeTimerRef.current = setTimeout(() => {
         minimizeTimerRef.current = null;
         document.removeEventListener("mouseover", handleOver);
-        onMinimize();
+        // Read through the ref, not the closure: a run that starts during the
+        // grace window has to count, and putting `busy` in this effect's deps
+        // would tear the listeners down and rebuild them on every token.
+        onMinimize({
+          busy: busyRef.current,
+          hasContent: hasContentRef.current,
+        });
       }, MINIMIZE_GRACE_MS);
       document.addEventListener("mouseover", handleOver);
     };
@@ -541,10 +810,6 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
     return () => document.removeEventListener("keydown", onKey);
   }, [minimized, onClose]);
 
-  const miniMessageRef = useRef<HTMLDivElement | null>(null);
-  const [miniContentHeight, setMiniContentHeight] = useState<number | null>(
-    null,
-  );
   const finalText = useMemo(() => {
     if (busy) return null;
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -559,8 +824,21 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
     }
     return null;
   }, [messages, busy]);
+  /**
+   * The pill opens into the minimized card once — when a run lands.
+   *
+   * A pill is the resting shape: leaving the big card collapses to one line,
+   * and one line is all a run in flight ever shows. Completion is the single
+   * moment worth more room, because the answer has just arrived and the user
+   * is not in front of it. Everything else stays at strip height, so this
+   * reads as the pill opening rather than as a second card that never left.
+   */
   const showFullFinal =
     minimized && settled && notice === null && finalText !== null;
+  const miniMessageRef = useRef<HTMLDivElement | null>(null);
+  const [miniContentHeight, setMiniContentHeight] = useState<number | null>(
+    null,
+  );
   const miniStripHeight = showFullFinal
     ? Math.min(
         Math.max(
@@ -571,15 +849,8 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
       )
     : REMIX_CHAT_STRIP.height;
 
-  const onMiniHeightChangeRef = useRef(props.onMiniHeightChange);
-  onMiniHeightChangeRef.current = props.onMiniHeightChange;
-  useEffect(() => {
-    onMiniHeightChangeRef.current?.(miniStripHeight);
-  }, [miniStripHeight]);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: finalText re-runs the measurement when a new final message lands in the same settled state
+  // biome-ignore lint/correctness/useExhaustiveDependencies: finalText re-measures when a new answer lands in the same settled state
   useLayoutEffect(() => {
-    if (!minimized) return;
     if (!showFullFinal) {
       setMiniContentHeight(null);
       return;
@@ -587,7 +858,13 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
     const el = miniMessageRef.current;
     if (!el) return;
     setMiniContentHeight(el.scrollHeight + MINI_STRIP_PAD);
-  }, [minimized, showFullFinal, finalText]);
+  }, [showFullFinal, finalText]);
+
+  const onMiniHeightChangeRef = useRef(props.onMiniHeightChange);
+  onMiniHeightChangeRef.current = props.onMiniHeightChange;
+  useEffect(() => {
+    onMiniHeightChangeRef.current?.(miniStripHeight);
+  }, [miniStripHeight]);
 
   useEffect(() => {
     if (!minimized || !settled) return;
@@ -602,6 +879,7 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
         contextRef.current = {
           // Null can mean empty highlight or a slow reply — keep last known.
           text: re.selection ?? contextRef.current.text,
+          target: re.target ?? contextRef.current.target,
           appName: re.appName,
           windowTitle: re.windowTitle,
           url: re.url ?? null,
@@ -622,6 +900,9 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
       setNotice(null);
       clearError();
       lastInstructionRef.current = text;
+      // A new instruction is a new turn: the write budget and the revision
+      // anchor start over, while the stale-target history carries forward.
+      beginRemixTurn(sessionRef.current);
       void sendMessage({ text });
     },
     [clearError, sendMessage],
@@ -732,11 +1013,14 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
           aria-hidden={!minimized}
         >
           <div className="remix-mini" data-full={showFullFinal}>
-            <span
-              className="remix-mini-dot"
-              data-busy={busy || !settled}
-              data-failed={notice !== null}
-            />
+            {/* The orb only earns its canvas while something is actually
+                running; a settled pill is a line of text with a mark next to
+                it, and a resting orb would animate for no reason. */}
+            {busy || !settled ? (
+              <MiniOrb state={narrating ? "searching" : "composing"} />
+            ) : (
+              <RestMark failed={notice !== null} />
+            )}
             {showFullFinal ? (
               <div className="remix-mini-message" ref={miniMessageRef}>
                 <Markdown text={finalText ?? ""} />
@@ -747,7 +1031,7 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
               </ThinkingShimmer>
             ) : (
               <span className="remix-mini-line remix-mini-text">
-                {notice ?? latestActivity(messages, false)}
+                {notice ?? finalText ?? latestActivity(messages, false)}
               </span>
             )}
           </div>
@@ -819,33 +1103,48 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
             className="remix-chat-scroll"
             viewportRef={scrollRef}
             busy={busy}
+            smooth={!busy}
             label="Remix conversation"
             contentClassName="remix-chat-thread"
           >
-            {messages.length === 0 && actions.length === 0 && !busy && (
-              <div className="remix-chat-empty">
-                {liveContext.text
-                  ? "Say or type what to do with your selection."
-                  : "Nothing selected — ask me to write, research, or answer."}
-              </div>
-            )}
-            {actions.map((action) => (
-              <div
-                key={action.id}
-                className="remix-chat-action"
-                data-failed={action.status === "failed"}
-              >
-                {action.status === "running"
-                  ? `${action.label}…`
-                  : action.status === "done"
-                    ? `${action.label} — replaced your text`
-                    : `${action.label} failed — ${action.detail ?? ""}`}
-              </div>
-            ))}
-            {messages.map((message) => (
-              <MessageRow key={message.id} message={message} busy={busy} />
-            ))}
-            {busy && !narrating && (
+            {!minimized &&
+              messages.length === 0 &&
+              actions.length === 0 &&
+              !busy && (
+                <div className="remix-chat-empty">
+                  {liveContext.text
+                    ? "Say or type what to do with your selection."
+                    : "Nothing selected — ask me to write, research, or answer."}
+                </div>
+              )}
+            {!minimized &&
+              actions.map((action) => (
+                <div
+                  key={action.id}
+                  className="remix-chat-action"
+                  data-failed={action.status === "failed"}
+                >
+                  {action.status === "running"
+                    ? `${action.label}…`
+                    : action.status === "done"
+                      ? `${action.label} — replaced your text`
+                      : `${action.label} failed — ${action.detail ?? ""}`}
+                </div>
+              ))}
+            {!minimized &&
+              messages.map((message, index) => (
+                <MessageRow
+                  key={message.id}
+                  message={message}
+                  busy={busy}
+                  streaming={
+                    busy &&
+                    index === messages.length - 1 &&
+                    message.role === "assistant"
+                  }
+                />
+              ))}
+            {!minimized && busy && !narrating && (
               <ThinkingShimmer className="remix-chat-busy">
                 Thinking…
               </ThinkingShimmer>
@@ -949,6 +1248,10 @@ const TOOL_LABELS: Record<string, { doing: string; done: string }> = {
     doing: "Looking at your screen…",
     done: "Checked your screen",
   },
+  read_writing_context: {
+    doing: "Reading your writing…",
+    done: "Read your writing",
+  },
   read_document: {
     doing: "Reading the document…",
     done: "Read the document",
@@ -999,6 +1302,9 @@ function latestActivity(messages: UIMessage[], busy: boolean): string {
         return finished && !busy ? labels.done : labels.doing;
       }
       if (isTextUIPart(part) && part.text.trim()) {
+        // While streaming, the first line grows every chunk — that thrashing
+        // the pill is worse than a stable status. Tools still win above.
+        if (busy && message.role === "assistant") return "Writing…";
         const line = part.text.trim().split("\n")[0] ?? "";
         if (message.role === "user") return busy ? "Thinking…" : `“${line}”`;
         return line;
@@ -1011,9 +1317,12 @@ function latestActivity(messages: UIMessage[], busy: boolean): string {
 const MessageRow = memo(function MessageRow({
   message,
   busy,
+  streaming = false,
 }: {
   message: UIMessage;
   busy: boolean;
+  /** Growing assistant text — render plain until the stream settles. */
+  streaming?: boolean;
 }): React.JSX.Element {
   if (message.role === "user") {
     const text = message.parts
@@ -1047,17 +1356,31 @@ const MessageRow = memo(function MessageRow({
             busy={busy}
           />
         ) : (
-          <AssistantText key={`text-${block.index}`} text={block.text} />
+          <AssistantText
+            key={`text-${block.index}`}
+            text={block.text}
+            streaming={streaming}
+          />
         ),
       )}
     </div>
   );
 });
 
-function AssistantText({ text }: { text: string }): React.JSX.Element {
+function AssistantText({
+  text,
+  streaming = false,
+}: {
+  text: string;
+  streaming?: boolean;
+}): React.JSX.Element {
   return (
     <div className="remix-chat-response">
-      <Markdown text={text} />
+      {streaming ? (
+        <div className="remix-md remix-md-plain">{text}</div>
+      ) : (
+        <Markdown text={text} />
+      )}
     </div>
   );
 }
@@ -1192,6 +1515,14 @@ function ToolActivity({
   );
 }
 
+const MARKDOWN_COMPONENTS = {
+  a: ({ children, href }: { children?: React.ReactNode; href?: string }) => (
+    <a href={href} target="_blank" rel="noreferrer">
+      {children}
+    </a>
+  ),
+};
+
 const Markdown = memo(function Markdown({
   text,
 }: {
@@ -1201,13 +1532,7 @@ const Markdown = memo(function Markdown({
     <div className="remix-md">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        components={{
-          a: ({ children, href }) => (
-            <a href={href} target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          ),
-        }}
+        components={MARKDOWN_COMPONENTS}
       >
         {text}
       </ReactMarkdown>
@@ -1251,35 +1576,26 @@ const REMIX_CHAT_CSS = `
     transition: opacity 110ms ease, visibility 0s 110ms;
   }
 
+  /* Padding is measured to the mark's box, not to the ink inside it. The
+     22px mark is mostly air at its edges, so a 13px inset — right for the 7px
+     dot this replaced — put the orb almost against the rim. 11px left against
+     16px right reads as even, because the mark's own margin makes up the
+     difference. */
   .remix-mini {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 8px;
     height: 100%;
-    padding: 0 16px 0 13px;
+    padding: 0 16px 0 11px;
   }
-  .remix-mini-dot {
-    flex-shrink: 0;
-    width: 7px;
-    height: 7px;
-    border-radius: 999px;
-    background: ${OLIVE};
-  }
-  .remix-mini-dot[data-busy="true"] {
-    background: #F5F1E4;
-    animation: remix-mini-pulse 1.1s ease-in-out infinite;
-  }
-  .remix-mini-dot[data-failed="true"] { background: rgba(224, 128, 95, 0.9); }
-  @keyframes remix-mini-pulse {
-    0%, 100% { opacity: 0.35; transform: scale(0.8); }
-    50% { opacity: 1; transform: scale(1); }
-  }
+  /* Opened by a landed answer. Top-aligned, because a paragraph beside a
+     centred mark reads as misaligned the moment it wraps to a second line. */
   .remix-mini[data-full="true"] {
     align-items: flex-start;
     height: 100%;
-    padding: 12px 16px;
+    padding: 11px 16px 12px 11px;
   }
-  .remix-mini[data-full="true"] .remix-mini-dot { margin-top: 5px; }
+  .remix-mini[data-full="true"] .remix-mini-mark { margin-top: -1px; }
   .remix-mini-message {
     flex: 1;
     min-width: 0;
@@ -1289,7 +1605,18 @@ const REMIX_CHAT_CSS = `
     line-height: 1.5;
     color: ${INK_DIM};
   }
-  /* No color here — TextShimmer paints via background-clip; color would hide it. */
+
+  /* One box for both states, so the text does not shift when a run lands. */
+  .remix-mini-mark {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    overflow: hidden;
+  }
+
   .remix-mini-line {
     flex: 1;
     min-width: 0;
@@ -1526,6 +1853,7 @@ const REMIX_CHAT_CSS = `
   .remix-chat-send:not(:disabled):active { transform: scale(0.95); }
 
   .remix-md { line-height: 1.6; word-break: break-word; }
+  .remix-md-plain { white-space: pre-wrap; }
   .remix-md > *:first-child { margin-top: 0; }
   .remix-md > *:last-child { margin-bottom: 0; }
   .remix-md p { margin: 0 0 8px; }

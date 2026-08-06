@@ -14,6 +14,7 @@ import type {
   RemixRecapturePayload,
   RemixSelectionPayload,
   RemixSelectResult,
+  RemixSurroundingsResult,
 } from "../shared/remix";
 
 declare global {
@@ -39,6 +40,7 @@ declare global {
       ) => void;
       setPillHotRect: (
         rect: { x: number; y: number; width: number; height: number } | null,
+        options?: { passThrough?: boolean },
       ) => void;
       onPillHotEnter: (callback: () => void) => () => void;
       showErrorDialog: (title: string, message: string) => Promise<void>;
@@ -67,6 +69,7 @@ declare global {
       remixRecapture: () => Promise<RemixRecapturePayload>;
       remixGetContext: () => Promise<RemixContextResult>;
       remixReadDocument: () => Promise<RemixReadDocumentResult>;
+      remixReadSurroundings: () => Promise<RemixSurroundingsResult>;
       remixSelectAll: () => Promise<RemixPrimitiveResult>;
       remixSelectText: (
         text: string,
@@ -85,6 +88,7 @@ declare global {
       ) => Promise<RemixPrimitiveResult>;
       remixGetClipboard: () => Promise<RemixCopyResult>;
       remixPasteText: (text: string) => Promise<RemixPrimitiveResult>;
+      remixPasteImage: (url: string) => Promise<RemixPrimitiveResult>;
       setRemixChatFocus: (focus: boolean) => void;
       setRemixRouteKeys: (open: boolean) => void;
       remixBarHover: () => void;

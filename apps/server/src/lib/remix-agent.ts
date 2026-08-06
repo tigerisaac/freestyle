@@ -65,7 +65,7 @@ export async function runRemixAgentLocally(
 
   const result = streamText({
     model: await createChatModel(llm.provider, llm.model_id),
-    system: buildRemixAgentSystem(request.context, { hasWebSearch: false }),
+    system: buildRemixAgentSystem(request.context),
     messages: await convertToModelMessages(request.messages as UIMessage[]),
     tools: remixClientTools(),
     stopWhen: stepCountIs(REMIX_MAX_STEPS),

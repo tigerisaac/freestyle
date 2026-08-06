@@ -20,6 +20,7 @@ import {
   type RemixRecapturePayload,
   type RemixSelectionPayload,
   type RemixSelectResult,
+  type RemixSurroundingsResult,
 } from "../shared/remix";
 
 // Custom APIs for renderer
@@ -54,7 +55,8 @@ const api = {
   // click-through outside this rect (null restores full interactivity).
   setPillHotRect: (
     rect: { x: number; y: number; width: number; height: number } | null,
-  ): void => ipcRenderer.send("pill:set-hot-rect", rect),
+    options?: { passThrough?: boolean },
+  ): void => ipcRenderer.send("pill:set-hot-rect", rect, options),
   onPillHotEnter: (callback: () => void): (() => void) => {
     const handler = (): void => callback();
     ipcRenderer.on("pill:hot-enter", handler);
@@ -117,6 +119,7 @@ const api = {
       callback(
         payload ?? {
           text: null,
+          target: { status: "unavailable", reason: "missing-payload" },
           appName: null,
           windowTitle: null,
           capturedAt: Date.now(),
@@ -133,6 +136,8 @@ const api = {
     ipcRenderer.invoke("remix:get-context"),
   remixReadDocument: (): Promise<RemixReadDocumentResult> =>
     ipcRenderer.invoke("remix:read-document"),
+  remixReadSurroundings: (): Promise<RemixSurroundingsResult> =>
+    ipcRenderer.invoke("remix:read-surroundings"),
   remixSelectAll: (): Promise<RemixPrimitiveResult> =>
     ipcRenderer.invoke("remix:select-all"),
   remixSelectText: (
@@ -160,6 +165,9 @@ const api = {
   /** Fast-lane replace for the preset chips; clipboard preserved. */
   remixPasteText: (text: string): Promise<RemixPrimitiveResult> =>
     ipcRenderer.invoke("remix:paste-text", text),
+  /** Atomic image insert; clipboard is restored after a successful paste. */
+  remixPasteImage: (url: string): Promise<RemixPrimitiveResult> =>
+    ipcRenderer.invoke("remix:paste-image", url),
   /** The chat card's input needs the keyboard; focusability follows it. */
   setRemixChatFocus: (focus: boolean): void =>
     ipcRenderer.send("remix:set-chat-focus", focus),

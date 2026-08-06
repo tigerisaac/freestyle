@@ -68,11 +68,10 @@ export const remixTransformSchema = z
     // of what the user picked.
     text: z
       .string()
-      .max(100_000)
       .refine((v) => v.trim().length > 0, "text field is required"),
     remixId: z.string().optional(),
-    instruction: z.string().max(4_000).optional(),
-    language: z.string().max(50).optional(),
+    instruction: z.string().optional(),
+    language: z.string().optional(),
     appName: z.string().max(200).nullish(),
   })
   .refine(
@@ -86,23 +85,80 @@ export type RemixTransformInput = z.infer<typeof remixTransformSchema>;
 // Agent lane
 // ---------------------------------------------------------------------------
 
+/**
+ * What the capture found under the cursor, as three states rather than two.
+ *
+ * `selection: null` cannot say whether nothing was highlighted or nothing
+ * could be read, and the agent needs to behave oppositely in those two cases:
+ * an empty target invites composition at the cursor, an unreadable one is not
+ * a target at all and nothing may be written until it is recovered.
+ *
+ * Only the status travels — the text itself is already `selection`.
+ */
+export const remixTargetSchema = z.enum(["selected", "empty", "unavailable"]);
+
+export type RemixTarget = z.infer<typeof remixTargetSchema>;
+
 /** Everything the desktop captured about where the user is writing. */
 export const remixContextSchema = z.object({
   /** The highlighted text, verbatim. Null when nothing was selected. */
   selection: z.string().max(100_000).nullable(),
+  /**
+   * Optional so that a desktop older than this field still validates; it is
+   * inferred from `selection` when absent, which reproduces the previous
+   * two-state behaviour exactly.
+   */
+  target: remixTargetSchema.optional(),
   appName: z.string().max(200).nullable(),
   windowTitle: z.string().max(500).nullable(),
   /** ISO codes of the user's languages; the agent must not translate. */
-  languages: z.array(z.string().max(50)).max(10).optional(),
+  languages: z.array(z.string()).optional(),
   /** Preview of the user's clipboard text and its full length — "edit this"
    * with nothing highlighted usually means the clipboard. */
   clipboard: z.string().max(500).nullable().optional(),
   clipboardLength: z.number().int().optional(),
+  /**
+   * What this thread's work has accumulated — brief, outline, established
+   * facts — rendered by the desktop, which is where it is stored. Injected by
+   * the local server rather than sent by the renderer; Freestyle Cloud
+   * receives it for one request and keeps none of it.
+   */
+  memory: z.string().max(20_000).optional(),
   /** Epoch ms of capture — lets the agent reason about staleness. */
   capturedAt: z.number(),
 });
 
 export type RemixContext = z.infer<typeof remixContextSchema>;
+
+/**
+ * Which writing skills this user allows, travelling with the request.
+ *
+ * On the wire rather than read from a server-side store because only the
+ * desktop knows the user's settings, and because it makes the cloud and BYOK
+ * paths take the identical decision from the identical input — which is the
+ * parity §6.1 asks CI to enforce.
+ */
+export const remixSkillPrefsSchema = z.object({
+  /** The whole skill layer is off unless this is true. */
+  enabled: z.boolean(),
+  /** Broad categories the user switched off in settings. */
+  disabledCategories: z
+    .array(
+      z.enum([
+        "clarity",
+        "professional",
+        "creative",
+        "marketing",
+        "academic",
+        "long-form",
+      ]),
+    )
+    .optional(),
+  /** A skill the user pinned for this request from the chip's override menu. */
+  preferredSkillId: z.string().max(100).optional(),
+});
+
+export type RemixSkillPrefs = z.infer<typeof remixSkillPrefsSchema>;
 
 /**
  * One agent request. The server is stateless: `messages` is the full
@@ -113,6 +169,8 @@ export type RemixContext = z.infer<typeof remixContextSchema>;
 export const remixAgentRequestSchema = z.object({
   messages: z.array(z.unknown()).min(1).max(80),
   context: remixContextSchema,
+  /** Absent from an older desktop, which means the skill layer stays off. */
+  skills: remixSkillPrefsSchema.optional(),
 });
 
 export type RemixAgentRequest = z.infer<typeof remixAgentRequestSchema>;
@@ -122,141 +180,124 @@ export const REMIX_WRITE_LIMIT = 20_000;
 export const REMIX_CLIPBOARD_LIMIT = 100_000;
 
 /**
- * Client-side tools: deliberately primitive. Each is one dumb action against
- * the user's machine — no composites, no verification, no caching. The
- * WORKFLOW lives in the system prompt; the descriptions below are the
- * per-tool contract: what it does, what it returns, and how to recover when
- * it fails. Edge cases are handled by tweaking prompt + descriptions, not by
- * adding machinery here.
+ * Client-side tools: composite, not primitive.
+ *
+ * These used to be thirteen one-keystroke primitives — select_all, copy,
+ * set_clipboard, paste, press_key — and the system prompt carried the recipes
+ * for combining them: which order, what to collapse first, when the highlight
+ * was sacred, how to verify. That cost roughly two thousand words of tool
+ * descriptions and as much again in prompt, on every single request, to
+ * re-teach the model a procedure that never varies.
+ *
+ * It also put the document's safety in the model's hands. "Never end your
+ * turn with the document fully selected" is a rule that works until the one
+ * turn it doesn't, and the failure mode is the user's work replaced by a
+ * paste that landed in a select-all.
+ *
+ * So the recipes moved into the host, which can actually enforce them. The
+ * primitives still exist behind these three tools — the composer in the
+ * renderer drives exactly the same IPC as before — but the model no longer
+ * sees them, cannot sequence them wrongly, and does not pay for their
+ * descriptions. What it sees is the capability: read the context, apply text
+ * to a target, undo.
  *
  * The names are the wire contract — the cloud route, the local BYOK loop,
- * and the renderer's tool executor all switch on them.
+ * and the renderer's composer all switch on them.
  */
 export const REMIX_CLIENT_TOOLS = {
-  get_context: {
+  read_writing_context: {
     description:
-      "Look at the user's machine right now. Returns { ok, appName, windowTitle, url, selection, preciseSelection, docLength }: appName/windowTitle describe the frontmost app, url is the active browser tab (null unless the app is a browser), selection is the text currently highlighted (null when nothing is highlighted), preciseSelection tells you whether select_text works in this app (false = canvas editor: use the select_all whole-document recipes instead), docLength is the document's character count when the app exposes it, and clipboardPreview/clipboardLength show what's on the user's clipboard (a capped preview — get_clipboard returns the full text). Call this once at the start of any task that depends on what is highlighted or where the user is writing, and trust it over the summon-time snapshot in your context. Reading the highlight injects a Copy keystroke into the document, so do not call it repeatedly — again only after the user may have changed something. Failure: { ok: false, reason: 'document-not-in-front' } means the user's document is no longer the frontmost app — stop and ask them to click back into it.",
-    inputSchema: z.object({}),
-  },
-  select_all: {
-    description:
-      "Select the entire document (one Cmd/Ctrl+A) in the user's frontmost app. Returns { ok }. After this, copy reads the whole document and paste replaces the whole document. WARNING: this DESTROYS the user's highlight — never use it when the highlight is the edit target (use read_document to see the document without touching the highlight). NEVER end your turn with the document in this state — always follow with either a paste, or copy + collapse_selection. Failures: 'document-not-in-front' (ask the user to click back into their document), 'inject-failed' (the keystroke was blocked; tell the user to check Accessibility permissions).",
-    inputSchema: z.object({}),
-  },
-  select_text: {
-    description:
-      "Select an exact text span in the document, visibly moving the user's cursor onto it — after which paste replaces exactly that span. Returns { ok }. Only works in apps where get_context reported preciseSelection: true. Failures: 'unsupported' (canvas editor — use the select_all whole-document recipe instead), 'not-found' (your span does not match the document character-for-character — re-read and take the passage verbatim), 'ambiguous' with matches: N (the span appears N times — either extend it with surrounding words until unique, or pass occurrence to pick one), 'document-not-in-front'.",
+      "Look at what the user is writing, right now, and at what is around it. Returns { ok, appName, windowTitle, url, target, selection, text?, clipboard?, surroundings?, truncated?, preciseSelection, generation, next }. `target` is the crucial field and is one of: 'selected' (the user has highlighted a span — `selection` holds it, and apply_text with target 'selection' replaces exactly that), 'empty' (a plain cursor — a valid destination, not a problem: apply_text with target 'cursor' inserts there), or 'unavailable' (the selection could NOT be read — this is not an empty target, so do not write anything; tell the user to click back into their document). Reading the highlight can cost a keystroke in the user's document, so call this once at the start of a task that depends on what is highlighted, and again only after the user may have changed something. Failure: { ok: false, reason: 'document-not-in-front' } — the user's document is no longer frontmost; ask them to click back into it.",
     inputSchema: z.object({
-      text: z
-        .string()
-        .min(1)
-        .max(REMIX_WRITE_LIMIT)
-        .describe(
-          "The exact span to select, copied character-for-character from a copy of the document — including whitespace and punctuation. This is not a search query: no regex, no paraphrasing, no ellipses.",
-        ),
-      occurrence: z
-        .number()
-        .int()
-        .min(1)
-        .max(50)
+      scope: z
+        .enum([
+          "selection",
+          "document",
+          "near-cursor",
+          "clipboard",
+          "surroundings",
+        ])
         .optional()
         .describe(
-          "When the span appears more than once: which occurrence to select, counting from 1 at the top of the document. Omit when the span is unique.",
+          "What to read. 'selection' (default) — just the highlight and where the user is; the cheapest, and all a highlighted edit needs. 'document' — the whole document in `text`, for when you must locate a passage the user did not highlight, or match the surrounding voice. 'near-cursor' — the passage around the cursor, for continuing prose without reading a long document. 'clipboard' — the current clipboard text in `clipboard`, when its preview was truncated or the user explicitly referred to it. 'surroundings' — the readable text of the whole WINDOW in `surroundings`, including what is outside the field being typed into. This is the one that answers 'reply to this': the message being replied to is never inside the reply box, so a 'document' read of a compose field returns an empty draft no matter how often you repeat it. Use it whenever the task refers to something on screen you cannot otherwise see — an email, a chat thread, a form, a page. It returns interface text too (menus, tab titles), so read past that to the content. Ask for the least you need: document, clipboard and surroundings reads can be tens of thousands of characters.",
         ),
     }),
   },
-  read_document: {
+  apply_text: {
     description:
-      "Read the ENTIRE document via the accessibility API — zero keystrokes, and the user's highlight stays exactly where it is. Returns { ok, text, truncated, selStart, selLen } (selStart/selLen locate the current selection within the text). This is how you get surrounding context for a highlighted edit without destroying the highlight. Only works where get_context reported preciseSelection: true; canvas editors return 'unsupported' — there, either work from the highlight alone or accept that select_all reading forces a whole-document rewrite.",
+      "Write text into the user's document. This is the ONLY way to change their document, and it is one atomic step: the host positions the target, puts the text in place, restores the user's clipboard, and records the edit so undo_last_remix can reverse it. Returns { ok, applied, reason? }. You do not manage the clipboard, the selection, or the cursor — describe the destination with `target` and the host does the rest, including refusing stale targets. Write once and completely where you can. Writing again in the same turn is safe rather than forbidden: the host replaces your own previous output instead of leaving a second copy beside it, and re-sending text you already wrote is a no-op. So revise when you have a reason to, and stop when the document says what the user asked for. Every failure carries `next`, which says exactly what to do about it, and `retryable`. When `retryable` is false no version of that call will succeed: say what happened in one sentence and let the user decide. Never repeat a call whose arguments already failed. A failure means nothing was written.",
+    inputSchema: z
+      .object({
+        target: z
+          .enum([
+            "selection",
+            "cursor",
+            "document",
+            "anchored-passage",
+            "clipboard",
+          ])
+          .describe(
+            "Where the text goes. 'selection' — replace exactly what the user highlighted; it can never mean the whole document, even when your `text` contains a complete rewrite. 'cursor' — insert at the cursor, replacing nothing; this is the default for composing new content. 'document' — replace the entire document exactly; use only after read_writing_context with scope 'document' returned the complete current text. 'anchored-passage' — replace a passage the user did NOT highlight, identified by `anchor`. 'clipboard' — put the text on the clipboard and do not touch the document at all; use ONLY when the user explicitly said not to write ('copy it', 'don't paste').",
+          ),
+        text: z
+          .string()
+          .min(1)
+          .max(REMIX_CLIPBOARD_LIMIT)
+          .describe(
+            "The final text, exactly as it should appear in the document: no preamble, no commentary, no wrapping quotes, no code fence unless the original had one. Document writes are capped at 20,000 characters; the larger limit is only for an explicit clipboard-only result. Any unchanged text you are rewriting around must be reproduced character-for-character from what you actually read — never from memory.",
+          ),
+        anchor: z
+          .string()
+          .min(1)
+          .max(REMIX_WRITE_LIMIT)
+          .optional()
+          .describe(
+            "Required when target is 'anchored-passage': the exact existing passage to replace, copied character-for-character from a read of the document. Not a search query — no regex, no paraphrase, no ellipses.",
+          ),
+        occurrence: z
+          .number()
+          .int()
+          .min(1)
+          .max(50)
+          .optional()
+          .describe(
+            "When `anchor` appears more than once: which occurrence to replace, counting from 1 at the top of the document. Omit when the anchor is unique.",
+          ),
+      })
+      .refine(
+        (value) =>
+          value.target === "clipboard" ||
+          value.text.length <= REMIX_WRITE_LIMIT,
+        {
+          message: `document writes cannot exceed ${REMIX_WRITE_LIMIT} characters`,
+          path: ["text"],
+        },
+      )
+      .refine(
+        (value) => value.target !== "anchored-passage" || !!value.anchor,
+        {
+          message: "anchor is required for an anchored-passage write",
+          path: ["anchor"],
+        },
+      ),
+  },
+  undo_last_remix: {
+    description:
+      "Reverse the last edit YOU made with apply_text, using the app's own undo — which restores formatting a plain-text rewrite cannot. Returns { ok, reason? }. Only your own last edit can be reversed, and only once ('nothing-to-undo' means there is no edit of yours to take back — do not press further, or you start eating the user's own work). Use it when you got something wrong, or when the user asks you to revert.",
     inputSchema: z.object({}),
   },
-  collapse_selection: {
+  insert_image: {
     description:
-      "Collapse the current selection with one Right-Arrow press: the cursor lands just after what was selected and nothing is selected anymore. Returns { ok }. Use immediately after reading with select_all + copy, so a stray keystroke can't wipe the document.",
-    inputSchema: z.object({}),
-  },
-  copy: {
-    description:
-      "Copy the current selection (Cmd/Ctrl+C) and return it to you. Returns { ok, text, truncated } — text is the selection's plain text (capped at 60,000 chars; truncated: true past that). The user's own clipboard is restored afterwards: the text comes back in this result, it does NOT stay on the clipboard, so pasting it later still requires set_clipboard first. Failure: 'nothing-copied' means nothing was selected or the app was too slow to answer — after a select_all on a large document, try once more before giving up.",
-    inputSchema: z.object({}),
-  },
-  set_clipboard: {
-    description:
-      "Put text on the user's clipboard (really — it replaces what they had). Returns { ok }. Almost always followed by paste in the same turn — Remix's job is writing into the user's document. Use it WITHOUT paste only when the user explicitly asked for clipboard-only ('copy it', 'don't paste') — then tell them it's on their clipboard.",
-    inputSchema: z.object({
-      text: z
-        .string()
-        .min(1)
-        .max(REMIX_CLIPBOARD_LIMIT)
-        .describe(
-          "The final text exactly as it should appear if pasted: no preamble, no commentary, no wrapping quotes, no code fence unless the original had one. When replacing document text, reproduce every unchanged character exactly as you read it.",
-        ),
-    }),
-  },
-  set_clipboard_image: {
-    description:
-      "Download an image onto the user's clipboard. Returns { ok }. Follow with paste to insert it into the document. Failure: 'fetch-failed' (the URL didn't serve a usable image — try the next image_search result; if none work, give the user the URL in chat instead).",
+      "Insert an image into the user's document at the cursor, from a direct image URL. Returns { ok, reason? }. Like apply_text, this is atomic: fetch, place, restore the clipboard. Failure: 'fetch-failed' (the URL did not serve a usable image — try the next image_search result; if none work, give the user the URL in chat instead), 'document-not-in-front'.",
     inputSchema: z.object({
       url: z
         .string()
         .url()
         .max(2_000)
         .describe(
-          "A direct image-file URL — use imageUrl from image_search results, NOT sourceUrl (which is the webpage the image came from).",
+          "A direct image-file URL — use `imageUrl` from image_search results, NOT `sourceUrl` (which is the webpage the image appeared on).",
         ),
     }),
-  },
-  paste: {
-    description:
-      "Inject Cmd/Ctrl+V: whatever is on the clipboard RIGHT NOW lands in the document at the cursor, replacing the current selection if there is one. Returns { ok }. Paste takes no text argument — you must call set_clipboard or set_clipboard_image first in the same turn, or you will paste stale clipboard contents. ok: true means the keystroke was delivered, not that the result looks right: for edits that matter, verify per your VERIFY recipe before telling the user it's done. Failures: 'document-not-in-front' (ask the user to click back into their document), 'paste-failed'.",
-    inputSchema: z.object({}),
-  },
-  undo: {
-    description:
-      "The app's own Undo (Cmd/Ctrl+Z). Returns { ok }. Reverses the last edit natively — including formatting that a plain-text re-paste can't restore, which makes it the best way to revert your own paste. Use it only immediately after your own edit and at most once per edit, then verify with a read-back: undoing further starts eating the user's own work.",
-    inputSchema: z.object({}),
-  },
-  redo: {
-    description:
-      "The app's own Redo (Cmd/Ctrl+Shift+Z) — reverses an undo. Returns { ok }.",
-    inputSchema: z.object({}),
-  },
-  press_key: {
-    description:
-      "Press one bare key in the document (no modifier chords exist — compose bigger actions from the other tools). Returns { ok }. Common uses: backspace deletes the current selection; enter inserts a line break between pastes; tab moves to the next field; escape dismisses a popup; arrows nudge the cursor one step.",
-    inputSchema: z.object({
-      key: z
-        .enum([
-          "enter",
-          "tab",
-          "escape",
-          "backspace",
-          "delete",
-          "left",
-          "right",
-          "up",
-          "down",
-          "home",
-          "end",
-        ])
-        .describe(
-          "The key to press, exactly one of the listed names. 'backspace' deletes backward/deletes the selection; 'delete' deletes forward.",
-        ),
-      times: z
-        .number()
-        .int()
-        .min(1)
-        .max(50)
-        .optional()
-        .describe(
-          "Press the key this many times in a row (default 1). Use for multi-step cursor movement instead of repeated calls.",
-        ),
-    }),
-  },
-  get_clipboard: {
-    description:
-      "Read the full text currently on the user's clipboard. Returns { ok, text, truncated }. The context snapshot and get_context already show a capped preview — call this when the clipboard is the subject of the task and you need all of it. When nothing is highlighted and the user says 'edit this' / 'fix it' with no visible target, what they copied is usually what they mean.",
-    inputSchema: z.object({}),
   },
 } as const;
 
