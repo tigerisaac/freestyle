@@ -260,39 +260,74 @@ const RULES: Rule[] = [
     weight: 0.8,
     resourceId: "copywriting-principles",
   },
+  // Outranks copywriting where both fire, and deliberately so: this rule needs
+  // a persuasion verb AND a copy noun, so when it matches it has strictly more
+  // evidence than the rule that only needed the noun. It is also the pass the
+  // user asked for — §6.2 keeps drafting and the review pass apart, and
+  // "make this punchier" over a highlighted CTA is the review one.
   {
     category: "marketing",
     skillId: "copy-editing",
     instruction:
-      /\b(punch(?:ier)?|more compelling|more persuasive|sell|hook)\b.*\b(copy|headline|page|cta)\b/i,
-    weight: 0.75,
+      /(?:\b(punch(?:ier)?|more compelling|more persuasive|sell|hook)\b.*\b(copy|headline|page|cta)\b|\b(copy|headline|page|cta)\b.*\b(punch(?:ier)?|more compelling|more persuasive|hook)\b)/i,
+    weight: 0.84,
     resourceId: "the-seven-sweeps-framework",
   },
 
   // --- Academic ---------------------------------------------------------
+  // Two tiers, because this vocabulary is not equally academic. "Dissertation"
+  // has one meaning; "paper", "journal", and "argument" have an everyday one
+  // that shows up constantly in ordinary correspondence — a paper supplier, a
+  // journal subscription, an argument over renewal terms. Scoring those as
+  // highly as a literature review is what makes a mail thread route to
+  // scholarly conventions, so they sit below the pre-activation threshold on
+  // their own and only carry a request when something else agrees.
   {
     category: "academic",
     skillId: "academic-writing",
     instruction:
-      /\b(thesis|dissertation|abstract|literature review|citation|cite|references|peer review|methodology|hypothesis|research question|journal|paper|counterargument|argument)\b/i,
-    weight: 0.7,
+      /\b(thesis|dissertation|literature review|peer review|methodology|hypothesis|research question|counterargument|abstract)\b/i,
+    weight: 0.85,
+    resourceId: "writing-conventions",
+  },
+  {
+    category: "academic",
+    skillId: "academic-writing",
+    instruction: /\b(citation|cite|references|journal|paper|argument)\b/i,
+    weight: 0.5,
     resourceId: "writing-conventions",
   },
 
   // --- Long-form --------------------------------------------------------
+  // Compound nouns are safe on their own; the single words are not. "Guide",
+  // "report", "article", and "essay" are all common verbs or everyday nouns —
+  // "can you guide me", "report back to my manager" — so they need a
+  // determiner or a "to/on" that makes them the thing being written rather
+  // than something being done.
   {
     category: "long-form",
     skillId: "long-form-content-frameworks",
     instruction:
-      /\b(whitepaper|white paper|long[- ]form|guide|report|article|essay|blog post|case study)\b/i,
-    weight: 0.65,
+      /\b(whitepaper|white paper|long[- ]form|blog post|case study)\b/i,
+    weight: 0.72,
+    resourceId: "structural-archetypes",
+  },
+  {
+    category: "long-form",
+    skillId: "long-form-content-frameworks",
+    instruction:
+      /\b(?:(?:a|an|the|this|my|our|another|complete|ultimate|practical|definitive|step[- ]by[- ]step)\s+(?:\w+\s+){0,2}(?:guide|report|article|essay)\b|(?:guide|report|article|essay)\s+(?:to|on|about)\b)/i,
+    weight: 0.68,
     resourceId: "structural-archetypes",
   },
   {
     category: "long-form",
     skillId: "long-form-content-frameworks",
     // An explicit large word count is a structural request whatever the topic.
-    instruction: /\b([1-9]\d{3,})\s*(?:-|\s)?words?\b/i,
+    // Written the way people write it, thousands separator and all: "4,000
+    // words" was slipping past a digits-only pattern and taking the route with
+    // it.
+    instruction: /\b([1-9]\d{0,2}(?:,\d{3})+|[1-9]\d{3,})\s*[-\s]?words?\b/i,
     weight: 0.75,
     resourceId: "structural-archetypes",
   },
