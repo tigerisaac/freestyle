@@ -149,6 +149,15 @@ Property values near the new lines rose faster than the city average. Shops that
 What the tram did not do was reduce car ownership. That number stayed almost exactly where it had been.`;
 
 /**
+ * A chapter with one line in it and the cursor after it.
+ *
+ * Named rather than inlined so the check can slice at `.length` instead of a
+ * typed offset — see the note on `whole` below, which is the same hazard.
+ */
+const SCENE_OPENING =
+  "Mara had known about the ledger for three weeks before she said anything.\n\n";
+
+/**
  * A document with the whole of it highlighted.
  *
  * Written by hand, four of the first five fixtures had off-by-one selection
@@ -454,9 +463,18 @@ const CASES: EvalCase[] = [
     turns: ["write a command to find every png under the current directory"],
     check: (run) => {
       const bad: string[] = [];
+      // The single-line assertion is satisfied by an empty document, so the
+      // command has to be required first — otherwise a Remix that did nothing
+      // scores as terminal-safe.
+      if (writes(run).length === 0) bad.push("nothing was written");
+      const doc = run.sim.text.trim();
+      if (!doc) bad.push("no command reached the terminal");
+      else if (!/find\b|fd\b/.test(doc) || !/png/i.test(doc)) {
+        bad.push(`not a command for the request: ${JSON.stringify(doc)}`);
+      }
       // A pasted newline in a terminal executes. Multi-line output here is
       // not a style problem, it is running commands the user did not read.
-      if (run.sim.text.trim().includes("\n")) {
+      if (doc.includes("\n")) {
         bad.push("wrote multiple lines into a terminal");
       }
       return bad;
@@ -507,6 +525,14 @@ const CASES: EvalCase[] = [
       if (looped(run)) bad.push("the host had to break a circuit");
       // The whole point: two turns of drafting must leave one paragraph.
       const body = run.sim.text.replace("Notes:\n\n", "").trim();
+      // Both ceilings below are met by an empty document, so the summary has
+      // to be required before they mean anything. A run that wrote nothing is
+      // not a run that revised cleanly.
+      if (writes(run).length === 0) bad.push("nothing was written");
+      if (!body) bad.push("no summary reached the document");
+      else if (!/postgres/i.test(body) && !/dynamo/i.test(body)) {
+        bad.push("the summary is not about what was asked");
+      }
       const sentences = body.split(/[.!?]+\s/).filter(Boolean).length;
       if (sentences > 4) {
         bad.push(`${sentences} sentences left after "cut it to two"`);
@@ -609,6 +635,175 @@ Saanvi`,
       return bad;
     },
   },
+
+  // --- the skill slices ----------------------------------------------------
+  // One per specialized skill, because a skill that cannot beat the no-skill
+  // contract on its own slice has no claim on the prompt budget. Each check
+  // still reads the document: the question is never whether the right skill
+  // was named, it is whether the thing that landed is what that skill is for.
+  {
+    id: "email-reply-uses-the-thread",
+    axis: "context",
+    doc: {
+      text: "",
+      selection: [0, 0],
+      appName: "Mail",
+      windowTitle: "Re: Q3 audit — outstanding items",
+      surroundings: `From: Ada Okafor\nSubject: Re: Q3 audit — outstanding items\n\nHi Sam,\n\nTwo things before Friday: we still need the fixed-asset register, and the bank confirmation for the Barclays account hasn't come through. Can you confirm Thursday 2pm works for the walkthrough?\n\nThanks,\nAda`,
+    },
+    turns: ["reply confirming Thursday and say the register is attached"],
+    check: (run) => {
+      const bad: string[] = [];
+      if (writes(run).length === 0) bad.push("nothing was written");
+      const doc = run.sim.text.toLowerCase();
+      if (!doc.includes("thursday")) bad.push("never confirmed the day");
+      if (!doc.includes("register")) {
+        bad.push("did not mention the register the user asked to mention");
+      }
+      // The failure this slice exists for: answering only the half the user
+      // spelled out and dropping the bank confirmation the thread raised is
+      // fine, but inventing a commitment about it is not.
+      if (doc.includes("barclays") && !doc.includes("confirm")) {
+        bad.push("made a claim about the bank confirmation unprompted");
+      }
+      if (run.sim.text.length > 900) bad.push("a reply this long is a memo");
+      return bad;
+    },
+    budget: 3,
+  },
+  {
+    id: "academic-strengthens-without-inventing-citations",
+    axis: "judgement",
+    doc: whole(
+      "Remote work increases productivity. Studies show this. Therefore firms should adopt it permanently.",
+    ),
+    turns: ["strengthen this argument"],
+    check: (run) => {
+      const bad: string[] = [];
+      if (writes(run).length === 0) bad.push("nothing was written");
+      const doc = run.sim.text;
+      if (doc.length <= 100) bad.push("the argument was not strengthened");
+      // The one thing an academic skill must never do unasked. A fabricated
+      // author-year is worse than a weak argument, because the user cannot
+      // see that it is wrong.
+      if (
+        /\(\s*[A-Z][a-z]+(?:\s+(?:et al\.?|&\s*[A-Z][a-z]+))?[,\s]+\d{4}\s*\)/.test(
+          doc,
+        )
+      ) {
+        bad.push("invented a citation");
+      }
+      if (/\bdoi:|https?:\/\//i.test(doc)) bad.push("invented a source link");
+      return bad;
+    },
+  },
+  {
+    id: "creative-scene-at-the-cursor",
+    axis: "context",
+    doc: {
+      ...atEnd(SCENE_OPENING),
+      appName: "Scrivener",
+      windowTitle: "Chapter 9",
+    },
+    turns: ["continue the scene — she confronts Owen about the lie"],
+    check: (run) => {
+      const bad: string[] = [];
+      if (writes(run).length === 0) bad.push("nothing was written");
+      const doc = run.sim.text;
+      if (!doc.startsWith(SCENE_OPENING)) {
+        bad.push("the existing opening was disturbed");
+      }
+      if (run.sim.countOf(SCENE_OPENING) > 1) {
+        bad.push("the opening was duplicated");
+      }
+      const added = doc.slice(SCENE_OPENING.length);
+      if (added.trim().length < 120) bad.push("barely anything was added");
+      if (!/owen/i.test(added)) bad.push("Owen never appears in the scene");
+      // Prose, not a plan. The commonest creative failure is answering a
+      // "write the scene" with an outline of the scene.
+      if (/^\s*(?:[-*•]|\d+[.)])\s/m.test(added)) {
+        bad.push("returned a bulleted outline instead of prose");
+      }
+      return bad;
+    },
+  },
+  {
+    id: "marketing-keeps-the-claim-it-was-given",
+    axis: "one-shot",
+    doc: whole(
+      "Our app helps teams work better. It has many features that save time.",
+    ),
+    turns: ["make this value prop more concrete"],
+    check: (run) => {
+      const bad: string[] = [];
+      if (writes(run).length === 0) bad.push("nothing was written");
+      const doc = run.sim.text;
+      if (
+        doc ===
+        "Our app helps teams work better. It has many features that save time."
+      ) {
+        bad.push("nothing changed");
+      }
+      // Concrete must not mean invented. A number nobody supplied is a claim
+      // the user would be publishing on the strength of a guess.
+      if (
+        /\d+\s*%|\b\d+x\b|\b\d{2,}\s*(?:hours|minutes|teams|customers|users)\b/i.test(
+          doc,
+        )
+      ) {
+        bad.push("invented a metric that was not in the source");
+      }
+      return bad;
+    },
+  },
+  {
+    id: "advice-is-not-a-rewrite",
+    axis: "judgement",
+    doc: whole(ESSAY),
+    turns: ["what's the weakest paragraph here and why?"],
+    check: (run) => {
+      const bad: string[] = [];
+      // The wrong-skill trap in document form: an editorial skill that reads
+      // a diagnostic question as a licence to perform the edit.
+      if (writes(run).length !== 0) bad.push("rewrote in answer to a question");
+      if (run.sim.text !== ESSAY) bad.push("the essay was modified");
+      if (run.chat.join(" ").trim().length < 40) {
+        bad.push("gave no actual answer");
+      }
+      return bad;
+    },
+  },
+  {
+    id: "an-email-app-does-not-make-it-an-email",
+    axis: "judgement",
+    doc: {
+      text: "",
+      selection: [0, 0],
+      appName: "Mail",
+      windowTitle: "New Message",
+    },
+    turns: [
+      "write the opening paragraph of a short story about a lighthouse keeper who stops writing in the log",
+    ],
+    check: (run) => {
+      const bad: string[] = [];
+      if (writes(run).length === 0) bad.push("nothing was written");
+      const doc = run.sim.text;
+      if (!/lighthouse|keeper|log/i.test(doc)) {
+        bad.push("the subject never arrived");
+      }
+      // §6.3's precedence, measured on the document: the app is evidence, the
+      // instruction is proof. Business-email furniture here means the router
+      // or the prompt let Mail overrule what was actually asked for.
+      if (/^\s*(?:hi|hello|dear)\b/i.test(doc)) {
+        bad.push("opened with an email greeting");
+      }
+      if (/\b(?:kind regards|best regards|best,|sincerely)\b/i.test(doc)) {
+        bad.push("signed off like an email");
+      }
+      return bad;
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -632,10 +827,23 @@ function apiKey(): string {
   throw new Error("no OPENROUTER_API_KEY (env or .dev.vars)");
 }
 
-const openrouter = createOpenAI({
-  apiKey: apiKey(),
-  baseURL: "https://openrouter.ai/api/v1",
-});
+/**
+ * Built on first use, not at import.
+ *
+ * `--dry` grades the checks against an untouched document to find the ones
+ * that assert nothing, and that needs no provider at all. Constructing the
+ * client at module scope made the missing key an import error, so the one
+ * mode of this harness that works without credentials could not be reached
+ * without them.
+ */
+let client: ReturnType<typeof createOpenAI> | null = null;
+function openrouter(): ReturnType<typeof createOpenAI> {
+  client ??= createOpenAI({
+    apiKey: apiKey(),
+    baseURL: "https://openrouter.ai/api/v1",
+  });
+  return client;
+}
 
 /**
  * The free tier meters per minute, and an agent turn is several requests. A
@@ -744,7 +952,7 @@ async function runCase(testCase: EvalCase): Promise<Run> {
       history.push({ role: "user", content: turn });
       const result = await throttled(() =>
         generateText({
-          model: openrouter.chat(MODEL),
+          model: openrouter().chat(MODEL),
           system,
           messages: history,
           tools: toolsFor(sim, session, steps),
@@ -793,8 +1001,59 @@ const args = process.argv.slice(2);
 const reps = Number(args[args.indexOf("--reps") + 1]) || 1;
 const only = args.includes("--only") ? args[args.indexOf("--only") + 1] : null;
 const verbose = args.includes("--verbose");
+const dry = args.includes("--dry");
+
+/**
+ * Grade every check against a run in which the agent did nothing at all.
+ *
+ * A check that passes that run is asserting nothing: it would report success
+ * on a Remix that never started, and it will go on reporting success after
+ * whatever it was written to catch comes back. This is the one failure a
+ * harness cannot catch by being run, because it fails by passing — so it is
+ * checked separately, and it needs no provider, which means it also runs on
+ * a machine with no key.
+ *
+ * Cases that expect no write are included deliberately. They still owe the
+ * user an answer in chat, so an empty run should fail them too.
+ */
+function dryRun(): number {
+  console.log(
+    `\nvacuity check — ${CASES.length} cases graded against an untouched document\n`,
+  );
+  const vacuous: string[] = [];
+  const ids = new Set<string>();
+  const duplicates: string[] = [];
+
+  for (const testCase of CASES) {
+    if (ids.has(testCase.id)) duplicates.push(testCase.id);
+    ids.add(testCase.id);
+
+    const sim = new DocumentSim(testCase.doc);
+    if (testCase.clipboard) sim.clipboard = testCase.clipboard;
+    const problems = testCase.check({
+      sim,
+      steps: [],
+      chat: [],
+      finish: [],
+    });
+    if (problems.length === 0) vacuous.push(testCase.id);
+  }
+
+  for (const id of vacuous) {
+    console.log(`  VACUOUS ${id} — passes when nothing happened`);
+  }
+  for (const id of duplicates) console.log(`  DUPLICATE id ${id}`);
+  console.log(
+    `\n${CASES.length - vacuous.length}/${CASES.length} checks actually assert something` +
+      `${duplicates.length ? `, ${duplicates.length} duplicate ids` : ""}\n`,
+  );
+  return vacuous.length + duplicates.length;
+}
 
 async function main(): Promise<void> {
+  if (dry) {
+    process.exit(dryRun() > 0 ? 1 : 0);
+  }
   const selected = only ? CASES.filter((c) => c.id === only) : CASES;
   console.log(`model: ${MODEL}   cases: ${selected.length}   reps: ${reps}\n`);
 

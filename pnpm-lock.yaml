@@ -421,6 +421,9 @@ importers:
       pkgroll:
         specifier: ^2.27.0
         version: 2.27.0(typescript@5.9.3)(vite@7.3.3(@types/node@25.9.1)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.22.4)(yaml@2.9.0))
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

@@ -5,7 +5,9 @@
     "build": "tsc --emitDeclarationOnly && pkgroll --minify",
     "start": "node dist/startup.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "eval:remix": "tsx --tsconfig tsconfig.eval.json scripts/eval-remix-agent.ts",
+    "eval:remix:dry": "tsx --tsconfig tsconfig.eval.json scripts/eval-remix-agent.ts --dry"
   },
   "exports": {
     ".": {
@@ -54,6 +56,7 @@
     "@types/ws": "^8.18.1",
     "freestyle-voice": "workspace:*",
     "pkgroll": "^2.27.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.9.3",
     "vitest": "^4.1.7"
   }

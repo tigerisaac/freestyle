@@ -573,6 +573,75 @@ loading the full project or full skill suite on every turn.
 - Local BYOK and Freestyle Cloud use the same skill bundle hash and routing
   contract.
 
+## 12a. Status — 2026-08-06
+
+### Measured
+
+The routing scorer is deterministic by design (§6.3), so its §8.4 gate is
+measurable with no model and no key. `packages/writing-skills` now carries a
+labelled corpus and grades against it:
+
+| | before | after |
+| --- | ---: | ---: |
+| Corpus accuracy (42 cases) | 92.9% | 100% |
+| High-confidence precision (§8.4 gate: 95%) | 92.1% | 100% |
+| Held-out set (12 cases, never tuned to) | 75.0% | 100% |
+
+Three rule-table defects were behind the gap, all fixed: academic vocabulary
+scored in one tier so "paper"/"journal"/"argument" routed like "dissertation";
+"guide"/"report"/"article"/"essay" matched as verbs; and the word-count rule
+missed a thousands separator. The held-out set was written after the fixes and
+is the number to trust — the corpus alone would only show the table had been
+fitted to it.
+
+Run: `pnpm exec tsx scripts/route-report.ts` in `packages/writing-skills`; the
+gates are enforced in `routing-benchmark.test.ts`.
+
+### Not measured — the agent lane is ungraded
+
+**`scripts/eval-remix-agent.ts` has not been run.** It needs
+`OPENROUTER_API_KEY` (env or `.dev.vars`) and no key was available in the
+environment this work was done in, so every claim below the router is
+unverified against a live model:
+
+- Whether an activated skill beats the no-skill contract on its own slice —
+  §8.4's central gate, and the whole justification for the prompt budget.
+- Whether `activate_writing_skill` is called when routing is unsure, and not
+  called when it isn't.
+- Prompt-budget figures in §6.5. The assembly was changed here (the search
+  section is gated again, the skill block is joined rather than substituted),
+  so the token counts have moved and nobody has counted them.
+- Every document-outcome claim for the six new skill-slice cases.
+
+What *was* done to the harness without a key: the corpus gained the missing
+slices (email reply with a thread, academic-without-invented-citations,
+creative scene at the cursor, marketing-without-invented-metrics, a
+diagnostic question that must not become a rewrite, and a fiction request
+made inside Mail); the provider client is built lazily so the harness loads
+without credentials; and `--dry` grades every check against an untouched
+document. That last one found two existing checks that passed when nothing
+had happened at all — `terminal-stays-one-line` and
+`revision-does-not-duplicate` — which had been reporting success on the
+strength of an empty buffer. Both now require the write first.
+
+### Known-broken or unfinished
+
+- **§6.4 vs `SUPPORT`.** The spec's worked example pairs professional
+  communication *with* clarity on "Reply that Thursday works". The router only
+  attaches a support skill when that skill's own rule also fired, so this
+  request gets professional alone. The code's reasoning (don't spend the
+  budget on every request) is defensible and the spec's is too; they disagree
+  and the disagreement is unresolved.
+- **§7.2's override menu.** The capability chip is now rendered, but it is
+  informational only. "Use a different writing skill…", the provenance panel,
+  and "Don't use this skill for this request" are not built.
+- **§6.6's `read_writing_context` scope for stale targets** is exercised only
+  by the untouched-target safety case; no case covers recovery *after* a
+  target goes stale mid-thread.
+- The feature remains behind `remix_writing_skills`, default off, gated in
+  both the renderer and `selectWritingSkill`. It should stay there until the
+  agent-lane gates above have actually been run.
+
 ## 13. Research sources
 
 Reviewed 2026-08-03:
