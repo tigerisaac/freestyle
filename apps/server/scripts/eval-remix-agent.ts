@@ -734,6 +734,10 @@ async function runCase(testCase: EvalCase): Promise<Run> {
           clipboardLength: sim.clipboard.length,
           capturedAt: Date.now(),
         },
+        // The harness registers the client tools only, exactly as the BYOK
+        // host does. Advertising search here would measure a prompt no user
+        // ever receives.
+        { hasWebSearch: false },
         skill.promptBlock,
       );
 

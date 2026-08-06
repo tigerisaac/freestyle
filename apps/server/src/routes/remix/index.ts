@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import agentRoute from "./agent.js";
+import memoryRoute from "./memory.js";
 import runsRoute from "./runs.js";
 import threadRoute from "./thread.js";
 import transformRoute from "./transform.js";
@@ -10,11 +11,13 @@ import transformRoute from "./transform.js";
  *   /agent     — the chat agent loop (cloud proxy or BYOK)
  *   /thread    — the pill's chat thread (local SQLite)
  *   /runs      — one row per write into the user's document; powers Revert
+ *   /memory    — a long thread's working notes: brief, outline, facts
  */
 const remixRouter = new Hono()
   .route("/transform", transformRoute)
   .route("/agent", agentRoute)
   .route("/thread", threadRoute)
-  .route("/runs", runsRoute);
+  .route("/runs", runsRoute)
+  .route("/memory", memoryRoute);
 
 export default remixRouter;

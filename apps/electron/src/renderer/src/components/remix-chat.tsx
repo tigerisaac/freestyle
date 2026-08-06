@@ -36,9 +36,10 @@ import {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type {
-  RemixSelectionPayload,
-  RemixSelectionState,
+import {
+  describeRemixTarget,
+  type RemixSelectionPayload,
+  targetFromSelection,
 } from "../../../shared/remix";
 import { SETTINGS_KEYS } from "../../../shared/settings-keys";
 import { FreestyleMark } from "./freestyle-mark";
@@ -845,6 +846,28 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
               <FreestyleMark size={15} />
               <span className="remix-chat-wordmark">Remix</span>
             </span>
+            {/*
+              The target reads before the instruction does, per §7.1: the user
+              should be able to see where this is going to land while they are
+              still saying what they want. The skill joins it once the router
+              has decided, and stays one quiet chip — the surface is meant to
+              be the document, not a mode picker.
+            */}
+            <span className="remix-chat-target">
+              <span
+                className="remix-chat-target-label"
+                data-unavailable={
+                  liveContext.target.status === "unavailable" ? "" : undefined
+                }
+              >
+                {describeRemixTarget(liveContext.target)}
+              </span>
+              {skill ? (
+                <span className="remix-chat-skill" title={skill.id}>
+                  {skill.label}
+                </span>
+              ) : null}
+            </span>
             <span className="remix-chat-actions">
               <button
                 type="button"
@@ -906,9 +929,13 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
           >
             {messages.length === 0 && actions.length === 0 && !busy && (
               <div className="remix-chat-empty">
-                {liveContext.text
+                {/* An empty caret is the second thing the hotkey is for, not a
+                    missing prerequisite — §4.1. Only a failed capture is. */}
+                {liveContext.target.status === "selected"
                   ? "Say or type what to do with your selection."
-                  : "Nothing selected — ask me to write, research, or answer."}
+                  : liveContext.target.status === "empty"
+                    ? "Say or type what to write here."
+                    : "Couldn’t read the selection — click back into your document."}
               </div>
             )}
             {actions.map((action) => (
@@ -1402,6 +1429,35 @@ const REMIX_CHAT_CSS = `
     font-size: 20px;
     line-height: 1;
     color: ${INK};
+  }
+  .remix-chat-target {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    margin-left: auto;
+  }
+  .remix-chat-target-label {
+    font-size: 11px;
+    line-height: 1;
+    color: ${INK_FAINT};
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* An unreadable target is the one state the user has to act on, so it is
+     the one that gets any colour at all. */
+  .remix-chat-target-label[data-unavailable] { color: rgba(232, 168, 124, 0.85); }
+  .remix-chat-skill {
+    flex-shrink: 0;
+    border: 1px solid rgba(138, 182, 42, 0.28);
+    background: rgba(138, 182, 42, 0.10);
+    color: ${INK_DIM};
+    font-size: 10px;
+    line-height: 1;
+    padding: 4px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
   }
   .remix-chat-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
   .remix-chat-icon {

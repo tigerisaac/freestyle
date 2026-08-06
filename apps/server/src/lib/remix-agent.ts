@@ -194,6 +194,9 @@ export async function runRemixAgentLocally(
     model: await createChatModel(llm.provider, llm.model_id),
     system: buildRemixAgentSystem(
       request.context,
+      // This is the BYOK lane: only the client tools are registered here, so
+      // the prompt must not advertise the cloud-only search tools.
+      { hasWebSearch: false },
       [memory, selection.promptBlock].filter(Boolean).join("\n\n"),
     ),
     messages: await convertToModelMessages(request.messages as UIMessage[]),

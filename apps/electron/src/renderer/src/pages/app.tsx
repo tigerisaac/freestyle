@@ -39,6 +39,7 @@ import {
 import {
   REMIX_HOLD_THRESHOLD_MS,
   type RemixSelectionPayload,
+  targetFromSelection,
 } from "../../../shared/remix";
 import { SETTINGS_KEYS } from "../../../shared/settings-keys";
 
@@ -4011,6 +4012,14 @@ export default function AppPage(): React.JSX.Element {
                     context={
                       remixContextRef.current ?? {
                         text: chatView.selection,
+                        // No capture stands behind this fallback, so a blank
+                        // selection is an unread target rather than a caret.
+                        // Calling it `empty` would be telling the agent it may
+                        // write at a cursor nobody confirmed was there.
+                        target: targetFromSelection(chatView.selection, {
+                          status: "unavailable",
+                          reason: "no-capture",
+                        }),
                         appName: null,
                         windowTitle: null,
                         capturedAt: Date.now(),

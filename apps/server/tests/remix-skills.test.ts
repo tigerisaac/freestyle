@@ -138,6 +138,7 @@ describe("skill text in the assembled prompt", () => {
         windowTitle: null,
         capturedAt: Date.now(),
       },
+      { hasWebSearch: false },
       selection.promptBlock,
     );
 
@@ -164,6 +165,7 @@ describe("skill text in the assembled prompt", () => {
         windowTitle: null,
         capturedAt: Date.now(),
       },
+      { hasWebSearch: false },
       selection.promptBlock,
     );
 

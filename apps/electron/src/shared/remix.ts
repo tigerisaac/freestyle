@@ -72,6 +72,27 @@ export function selectionText(state: RemixSelectionState): string | null {
 }
 
 /**
+ * Read a legacy `string | null` capture as a target.
+ *
+ * The older capture paths report only the text, which cannot distinguish the
+ * two blank meanings this type exists to keep apart — so the caller supplies
+ * the one that applies where it stands. `blank` defaults to `empty` because
+ * the common caller is a capture that succeeded and found nothing
+ * highlighted, which is a caret and a perfectly good place to write.
+ *
+ * Callers with no successful capture behind them must pass `unavailable`
+ * instead. Defaulting those to `empty` would hand the agent permission to
+ * write at a cursor nobody confirmed was there, which is the one failure the
+ * spec calls a release blocker regardless of how good the prose is.
+ */
+export function targetFromSelection(
+  text: string | null,
+  blank: RemixSelectionState = { status: "empty" },
+): RemixSelectionState {
+  return text ? { status: "selected", text } : blank;
+}
+
+/**
  * Whether the agent may write into this target unasked.
  *
  * True for both affirmative states — a highlight is replaced, a caret is
