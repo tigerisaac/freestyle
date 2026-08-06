@@ -180,6 +180,8 @@ export default function SettingsPage(): React.JSX.Element {
   );
   const [hotkeyMode, setHotkeyMode] = useState<"hold" | "toggle">("hold");
   const [remixBarEnabled, setRemixBarEnabled] = useState(true);
+  // Off by default until writing-skills quality gates are measured.
+  const [remixWritingSkills, setRemixWritingSkills] = useState(false);
   const [remixHotkey, setRemixHotkey] = useState(
     window.api?.defaultRemixHotkey ?? getDefaultRemixHotkey(),
   );
@@ -368,6 +370,16 @@ export default function SettingsPage(): React.JSX.Element {
       .catch(() => {});
   }, []);
 
+  const handleRemixWritingSkillsToggle = useCallback((enabled: boolean) => {
+    setRemixWritingSkills(enabled);
+    getClient()
+      .api.settings[":key"].$put({
+        param: { key: SETTINGS_KEYS.remixWritingSkills },
+        json: { value: String(enabled) },
+      })
+      .catch(() => {});
+  }, []);
+
   // The remix listener re-reads its accelerator from the server rather than
   // being handed one, so the reload has to wait for the write to land.
   const handleRemixHotkeyRecorded = useCallback((accelerator: string) => {
@@ -430,6 +442,7 @@ export default function SettingsPage(): React.JSX.Element {
     if (s[SETTINGS_KEYS.remixHotkey])
       setRemixHotkey(s[SETTINGS_KEYS.remixHotkey]);
     setRemixBarEnabled(s[SETTINGS_KEYS.remixBarEnabled] !== "false");
+    setRemixWritingSkills(s[SETTINGS_KEYS.remixWritingSkills] === "true");
     setLanguages(parseLanguagesSetting(s));
     if (s[SETTINGS_KEYS.translateMode] === "true") setTranslateMode(true);
     if (s[SETTINGS_KEYS.outputMode]) setOutputMode(s[SETTINGS_KEYS.outputMode]);
@@ -1115,11 +1128,21 @@ export default function SettingsPage(): React.JSX.Element {
               <Row
                 label={t("settings.remix.bar")}
                 desc={t("settings.remix.barDesc")}
-                last
               >
                 <Switch
                   checked={remixBarEnabled}
                   onCheckedChange={handleRemixBarToggle}
+                />
+              </Row>
+
+              <Row
+                label={t("settings.remix.writingSkills")}
+                desc={t("settings.remix.writingSkillsDesc")}
+                last
+              >
+                <Switch
+                  checked={remixWritingSkills}
+                  onCheckedChange={handleRemixWritingSkillsToggle}
                 />
               </Row>
             </SettingsPanel>

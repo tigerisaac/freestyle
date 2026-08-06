@@ -52,9 +52,77 @@ export const REMIX_IDLE_MS = 12_000;
  */
 export const REMIX_CHAT_IDLE_MS = 15 * 60 * 1000;
 
+/**
+ * What the hotkey press found under the cursor.
+ *
+ * Three states, not two, because "nothing is highlighted" and "we couldn't
+ * read what's highlighted" call for opposite behaviour and a `string | null`
+ * cannot tell them apart. An empty selection is a perfectly good target — it
+ * means compose at the cursor — while an unreadable one is no target at all,
+ * and writing into it means writing somewhere the user never pointed.
+ */
+export type RemixSelectionState =
+  | { status: "selected"; text: string }
+  | { status: "empty" }
+  | { status: "unavailable"; reason: string };
+
+/** The selected text, or null in either of the other two states. */
+export function selectionText(state: RemixSelectionState): string | null {
+  return state.status === "selected" ? state.text : null;
+}
+
+/**
+ * Whether the agent may write into this target unasked.
+ *
+ * True for both affirmative states — a highlight is replaced, a caret is
+ * written at — and false only when capture failed, which is the case the type
+ * exists to keep separable.
+ */
+export function canWriteToTarget(state: RemixSelectionState): boolean {
+  return state.status !== "unavailable";
+}
+
+/**
+ * How the target reads in the pill, per the spec's three summon states.
+ *
+ * `empty` deliberately does not phrase itself as an absence. "No selection"
+ * reads like something went wrong, and users who saw it stopped and went
+ * looking for text to highlight — when in fact an empty caret is the second
+ * of the two things the hotkey is for. "Writing at cursor" says what will
+ * happen instead of what is missing.
+ *
+ * Words rather than characters because a word count is the unit writers
+ * already think in, and it is the one that tells them at a glance whether the
+ * highlight they made is the one they meant.
+ */
+export function describeRemixTarget(state: RemixSelectionState): string {
+  switch (state.status) {
+    case "selected": {
+      const words = countWords(state.text);
+      return `Editing selection · ${words} ${words === 1 ? "word" : "words"}`;
+    }
+    case "empty":
+      return "Writing at cursor";
+    case "unavailable":
+      return "Couldn’t read selection";
+  }
+}
+
+function countWords(text: string): number {
+  const trimmed = text.trim();
+  return trimmed ? trimmed.split(/\s+/).length : 0;
+}
+
 /** What one hotkey press captured: the selection plus its anchor. */
 export interface RemixSelectionPayload {
+  /**
+   * The captured text, or null when nothing was highlighted or the read
+   * failed. Retained beside `target` so existing readers keep working;
+   * `target` is what anything deciding *where to write* must consult.
+   */
   text: string | null;
+  /** The tri-state reading of the same capture. */
+  target: RemixSelectionState;
   appName: string | null;
   windowTitle: string | null;
   /** Active browser tab URL when the anchor is a browser (Docs routing). */
@@ -69,6 +137,12 @@ export interface RemixSelectionPayload {
 /** A re-capture for a typed follow-up. `stale` means the pill had focus. */
 export interface RemixRecapturePayload {
   selection: string | null;
+  /**
+   * The tri-state reading of this re-capture. Absent when `stale` — a
+   * re-capture taken while the pill held focus never asked the document
+   * anything, so it has no verdict to offer about the target.
+   */
+  target?: RemixSelectionState;
   appName: string | null;
   windowTitle: string | null;
   url?: string | null;
@@ -91,6 +165,8 @@ export interface RemixContextResult extends RemixPrimitiveResult {
   windowTitle: string | null;
   url: string | null;
   selection: string | null;
+  /** The tri-state reading of `selection`. */
+  target?: RemixSelectionState;
   /** Whether select_text can place the selection precisely in this app. */
   preciseSelection?: boolean;
   /** The focused document's character count, when the app exposes it. */
@@ -107,6 +183,17 @@ export interface RemixReadDocumentResult extends RemixPrimitiveResult {
   /** The current selection's range within the text (UTF-16 offsets). */
   selStart?: number;
   selLen?: number;
+}
+
+/**
+ * read-surroundings: the whole focused window's readable text.
+ *
+ * Distinct from `RemixReadDocumentResult` because it carries no selection
+ * offsets — there is no single field being described, which is the point.
+ */
+export interface RemixSurroundingsResult extends RemixPrimitiveResult {
+  text?: string;
+  truncated?: boolean;
 }
 
 /** copy: the selection's text, capped for the model. */

@@ -8,6 +8,12 @@ import { MessageScroller } from "@renderer/components/agents/message-scroller";
 import { capture } from "@renderer/lib/analytics";
 import { apiFetch } from "@renderer/lib/api";
 import {
+  beginRemixTurn,
+  createSession,
+  type RemixHost,
+  runRemixTool,
+} from "@renderer/lib/remix-composites";
+import {
   DefaultChatTransport,
   type DynamicToolUIPart,
   getToolOrDynamicToolName,
@@ -30,9 +36,14 @@ import {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { RemixSelectionPayload } from "../../../shared/remix";
+import type {
+  RemixSelectionPayload,
+  RemixSelectionState,
+} from "../../../shared/remix";
+import { SETTINGS_KEYS } from "../../../shared/settings-keys";
 import { FreestyleMark } from "./freestyle-mark";
 import {
+  REMIX_CHAT_MAX_HEIGHT,
   REMIX_CHAT_STRIP,
   REMIX_CHAT_SURFACE,
   type RemixChatAnchor,
@@ -75,6 +86,8 @@ export interface RemixChatProps {
   initialInstruction: string | null;
   minimized: boolean;
   onMiniHeightChange?: (height: number) => void;
+  /** Natural height of the full card so the surface can size to its thread. */
+  onHeightChange?: (height: number) => void;
   anchor: RemixChatAnchor;
   onExpand: () => void;
   onMinimize: () => void;
@@ -88,6 +101,12 @@ export function RemixChat(props: RemixChatProps): React.JSX.Element {
   const [initialInstruction, setInitialInstruction] = useState(
     props.initialInstruction,
   );
+
+  // Surface sizes to this until natural-height measurement lands with the
+  // thinking-orbs polish. Cap keeps the pill from jumping to an empty 560px.
+  useEffect(() => {
+    props.onHeightChange?.(REMIX_CHAT_MAX_HEIGHT);
+  }, [props.onHeightChange]);
 
   // Pill is focusable:false; follow the card so the composer can take keyboard.
   useEffect(() => {
@@ -253,6 +272,107 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
     setLiveContext(props.context);
   }, [props.context]);
   const lastInstructionRef = useRef<string>("");
+
+  /**
+   * Which writing skills this user allows, travelling with every request.
+   *
+   * Read once into a ref rather than subscribed to: the value is only ever
+   * consulted at send time, and the pill has no React Query cache to share.
+   * Absent settings mean the layer stays off, which is the shipped default.
+   */
+  const skillPrefsRef = useRef<{
+    enabled: boolean;
+    disabledCategories?: string[];
+  }>({ enabled: false });
+  useEffect(() => {
+    let cancelled = false;
+    void apiFetch("/api/settings")
+      .then(async (res) => {
+        if (!res.ok) return;
+        const settings = (await res.json()) as Record<string, string>;
+        if (cancelled) return;
+        let disabled: string[] | undefined;
+        try {
+          const raw = settings[SETTINGS_KEYS.remixDisabledSkillCategories];
+          const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+          if (Array.isArray(parsed)) {
+            disabled = parsed.filter(
+              (entry): entry is string => typeof entry === "string",
+            );
+          }
+        } catch {
+          // A corrupt list means "nothing disabled", never a failed request.
+        }
+        skillPrefsRef.current = {
+          enabled: settings[SETTINGS_KEYS.remixWritingSkills] === "true",
+          disabledCategories: disabled,
+        };
+      })
+      .catch(() => {
+        // The layer stays off; the agent still runs without it.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /**
+   * Which skill the server routed this turn to, announced in the response
+   * headers so the chip can name it before a single token has streamed.
+   */
+  const [skill, setSkill] = useState<{ id: string; label: string } | null>(
+    null,
+  );
+  const skillRef = useRef(setSkill);
+  skillRef.current = setSkill;
+
+  /**
+   * What the model's tools actually do, and what it remembers between them.
+   *
+   * The session outlives a turn — its stale-target history is what lets a
+   * second write revise the first rather than land beside it — so it is a ref,
+   * reset per user-directed turn by `beginRemixTurn` rather than recreated.
+   */
+  const sessionRef = useRef(createSession());
+  const host = useMemo<RemixHost>(
+    () => ({
+      // Wrapped so every composite that looks at the document also refreshes
+      // the card's own idea of where the user is. The composites read context
+      // through this one call, so there is nowhere else to hook it.
+      remixGetContext: async () => {
+        const res = await window.api.remixGetContext();
+        if (res.ok) {
+          contextRef.current = {
+            text: res.selection,
+            target: res.target ?? targetFromSelection(res.selection),
+            appName: res.appName,
+            windowTitle: res.windowTitle,
+            url: res.url,
+            clipboard: res.clipboardPreview ?? null,
+            clipboardLength: res.clipboardLength ?? 0,
+            capturedAt: Date.now(),
+          };
+          setLiveContext(contextRef.current);
+        }
+        return res;
+      },
+      remixReadDocument: () => window.api.remixReadDocument(),
+      remixReadSurroundings: () => window.api.remixReadSurroundings(),
+      remixSelectAll: () => window.api.remixSelectAll(),
+      remixSelectText: (text, occurrence) =>
+        window.api.remixSelectText(text, occurrence),
+      remixCollapseSelection: () => window.api.remixCollapseSelection(),
+      remixCopy: () => window.api.remixCopy(),
+      remixGetClipboard: () => window.api.remixGetClipboard(),
+      remixSetClipboard: (text) => window.api.remixSetClipboard(text),
+      remixSetClipboardImage: (url) => window.api.remixSetClipboardImage(url),
+      remixPasteClipboard: () => window.api.remixPasteClipboard(),
+      remixPasteText: (text) => window.api.remixPasteText(text),
+      remixPasteImage: (url) => window.api.remixPasteImage(url),
+      remixUndo: () => window.api.remixUndo(),
+    }),
+    [],
+  );
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -277,6 +397,14 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
             } | null;
             throw new Error(body?.detail || `Remix failed (${res.status}).`);
           }
+          // The routed skill arrives in the headers, ahead of the stream, so
+          // the chip can name it while the first tokens are still in flight.
+          const id = res.headers.get("X-Freestyle-Skill");
+          skillRef.current(
+            id
+              ? { id, label: res.headers.get("X-Freestyle-Skill-Label") ?? id }
+              : null,
+          );
           return res;
         }) as typeof fetch,
         prepareSendMessagesRequest: ({ messages }) => ({
@@ -284,18 +412,31 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
             messages,
             context: {
               selection: contextRef.current.text,
+              // Only the status travels — the text itself is `selection` —
+              // and it is what tells the agent that an empty target is a
+              // destination rather than a failure.
+              target: contextRef.current.target?.status,
               appName: contextRef.current.appName,
               windowTitle: contextRef.current.windowTitle,
               clipboard: contextRef.current.clipboard ?? null,
               clipboardLength: contextRef.current.clipboardLength ?? 0,
               capturedAt: contextRef.current.capturedAt,
             },
+            skills: skillPrefsRef.current,
           },
         }),
       }),
     [],
   );
 
+  /**
+   * Run one model-visible tool.
+   *
+   * The sequencing that used to live here — select, copy, collapse, paste, in
+   * the right order and never leaving a document fully selected — now lives in
+   * `remix-composites`, which is code that runs the same way every time and
+   * can refuse rather than guess. This is only the bridge to it.
+   */
   const executeTool = useCallback(
     async (toolCall: {
       toolName: string;
@@ -304,18 +445,13 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
     }): Promise<Record<string, unknown>> => {
       const name = toolCall.toolName;
       const input = (toolCall.input ?? {}) as Record<string, unknown>;
-      const str = (key: string): string =>
-        typeof input[key] === "string" ? (input[key] as string) : "";
-      const num = (key: string): number | undefined =>
-        typeof input[key] === "number" ? (input[key] as number) : undefined;
-      const badArgs = (expected: string): Record<string, unknown> => ({
-        ok: false,
-        reason: "bad-args",
-        expected,
-        received: JSON.stringify(toolCall.input)?.slice(0, 300) ?? "undefined",
-      });
-
-      const result = await runTool();
+      const result = await runRemixTool(
+        host,
+        sessionRef.current,
+        name,
+        input,
+        thread.threadId,
+      );
       if (import.meta.env.DEV) {
         console.log(
           `[remix] ${name}(${JSON.stringify(toolCall.input)?.slice(0, 400) ?? ""}) →`,
@@ -323,66 +459,8 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
         );
       }
       return result;
-
-      async function runTool(): Promise<Record<string, unknown>> {
-        switch (name) {
-          case "get_context": {
-            const res = await window.api.remixGetContext();
-            if (res.ok) {
-              contextRef.current = {
-                text: res.selection,
-                appName: res.appName,
-                windowTitle: res.windowTitle,
-                url: res.url,
-                clipboard: res.clipboardPreview ?? null,
-                clipboardLength: res.clipboardLength ?? 0,
-                capturedAt: Date.now(),
-              };
-              setLiveContext(contextRef.current);
-            }
-            return { ...res };
-          }
-          case "read_document":
-            return { ...(await window.api.remixReadDocument()) };
-          case "select_all":
-            return { ...(await window.api.remixSelectAll()) };
-          case "select_text":
-            if (!str("text")) return badArgs("{ text: string }");
-            return {
-              ...(await window.api.remixSelectText(
-                str("text"),
-                num("occurrence"),
-              )),
-            };
-          case "collapse_selection":
-            return { ...(await window.api.remixCollapseSelection()) };
-          case "copy":
-            return { ...(await window.api.remixCopy()) };
-          case "set_clipboard":
-            if (!str("text")) return badArgs("{ text: string }");
-            return { ...(await window.api.remixSetClipboard(str("text"))) };
-          case "set_clipboard_image":
-            if (!str("url")) return badArgs("{ url: string }");
-            return { ...(await window.api.remixSetClipboardImage(str("url"))) };
-          case "paste":
-            return { ...(await window.api.remixPasteClipboard()) };
-          case "undo":
-            return { ...(await window.api.remixUndo()) };
-          case "redo":
-            return { ...(await window.api.remixRedo()) };
-          case "press_key":
-            if (!str("key")) return badArgs("{ key: string }");
-            return {
-              ...(await window.api.remixPressKey(str("key"), num("times"))),
-            };
-          case "get_clipboard":
-            return { ...(await window.api.remixGetClipboard()) };
-          default:
-            return { ok: false, reason: `unknown tool: ${name}` };
-        }
-      }
     },
-    [],
+    [host, thread.threadId],
   );
   const { messages, sendMessage, addToolResult, status, stop, clearError } =
     useChat<UIMessage>({
@@ -602,6 +680,7 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
         contextRef.current = {
           // Null can mean empty highlight or a slow reply — keep last known.
           text: re.selection ?? contextRef.current.text,
+          target: re.target ?? contextRef.current.target,
           appName: re.appName,
           windowTitle: re.windowTitle,
           url: re.url ?? null,
@@ -622,6 +701,9 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
       setNotice(null);
       clearError();
       lastInstructionRef.current = text;
+      // A new instruction is a new turn: the write budget and the revision
+      // anchor start over, while the stale-target history carries forward.
+      beginRemixTurn(sessionRef.current);
       void sendMessage({ text });
     },
     [clearError, sendMessage],

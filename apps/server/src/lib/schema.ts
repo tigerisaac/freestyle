@@ -7,7 +7,7 @@ import { countFixes } from "./fixes.js";
 // and would otherwise perturb test module-mock ordering.
 const DEFAULT_CLOUD_URL = "https://service.freestylevoice.com";
 
-const SCHEMA_VERSION = 21;
+const SCHEMA_VERSION = 22;
 
 // Legacy default format-rule patterns (used only by pre-v12 migrations below):
 // domain/phrase entries match as substrings of url+title+app; bare words match
@@ -663,6 +663,27 @@ function applyMigrations(db: DatabaseSync, currentVersion: number): void {
         "CREATE INDEX IF NOT EXISTS idx_model_configs_type_default ON model_configs(type, is_default)",
       );
     }
+  }
+
+  if (currentVersion < 22) {
+    // Per-thread writing memory for long-form Remix continuity (skills layer).
+    // Skills WIP used v21 for this table, but upstream already shipped v21 as
+    // transcription/model_config indexes — so this lands as v22.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS remix_thread_memory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        thread_id INTEGER NOT NULL REFERENCES remix_threads(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK(kind IN ('brief','outline','source','fact','open-question')),
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(thread_id, kind, content)
+      )
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_remix_thread_memory_thread
+        ON remix_thread_memory(thread_id, kind)
+    `);
   }
 
   // Upsert schema version

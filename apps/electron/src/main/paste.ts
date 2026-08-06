@@ -7,7 +7,7 @@ import {
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createAppLogger } from "@freestyle-voice/utils";
-import { app, clipboard } from "electron";
+import { app, clipboard, type NativeImage } from "electron";
 import { isLinuxTerminalFocused } from "./linux-terminal-focus";
 import { getNativeBinaryPath } from "./native-binary";
 
@@ -513,11 +513,24 @@ function restoreClipboard(
  * The clipboard is put back exactly as it was: the user did not ask us to
  * overwrite it, and they may well be mid-copy-paste of something else.
  *
- * Returns null when nothing was selected. That case is indistinguishable from
- * "the copy didn't work" from the outside — both leave the clipboard unchanged
- * — so the wait below is generous, and the caller phrases the failure as the
- * far more likely of the two ("select some text first").
+ * The result is three-valued rather than `string | null`, and the distinction
+ * is load-bearing: "nothing is highlighted" is a legitimate target — it means
+ * write at the cursor — whereas "we could not read the selection" is not a
+ * target at all. Collapsing the two lets a machine that failed to answer be
+ * mistaken for a document that answered "empty", which is how an edit ends up
+ * pasted somewhere nobody pointed at.
+ *
+ * What separates them here is *why* the clipboard came back untouched. A Copy
+ * we could not even inject — no Accessibility permission, a helper that would
+ * not run — is `unavailable`: the machine never heard the question. A Copy
+ * that went out and drew no answer within the budget below is `empty`, which
+ * is the far likelier reading and the one apps genuinely give for a caret.
  */
+export type SelectionCapture =
+  | { status: "selected"; text: string }
+  | { status: "empty" }
+  | { status: "unavailable"; reason: string };
+
 export interface CopySelectionOptions {
   /**
    * Per-attempt waits for the injected Copy to land. The default is tuned for
@@ -529,14 +542,19 @@ export interface CopySelectionOptions {
 
 export function copySelectionFromFocusedApp(
   options?: CopySelectionOptions,
-): Promise<string | null> {
-  const run = (): Promise<string | null> => doCopySelection(options);
+): Promise<SelectionCapture> {
+  const run = (): Promise<SelectionCapture> => doCopySelection(options);
   const result = pasteChain.then(run, run);
   pasteChain = result.then(
     () => undefined,
     () => undefined,
   );
   return result;
+}
+
+/** The captured text, or null for either non-`selected` state. */
+export function capturedText(capture: SelectionCapture): string | null {
+  return capture.status === "selected" ? capture.text : null;
 }
 
 /**
@@ -600,30 +618,43 @@ async function sendCopyToFocusedApp(): Promise<void> {
   }
 }
 
-/** One injected Copy, plus the wait for the app to answer it. */
+/**
+ * One injected Copy, plus the wait for the app to answer it.
+ *
+ * `"unanswered"` and `"uninjectable"` are both "the clipboard still holds the
+ * sentinel", and telling them apart is the whole reason this returns a tagged
+ * result rather than null: only the first of the two is evidence about the
+ * document.
+ */
+type CopyAttempt =
+  | { outcome: "answered"; text: string }
+  | { outcome: "unanswered" }
+  | { outcome: "uninjectable"; reason: string };
+
 async function attemptCopy(
   sentinel: string,
   timeoutMs: number,
-): Promise<string | null> {
+): Promise<CopyAttempt> {
   try {
     await sendCopyToFocusedApp();
   } catch (err) {
-    log.warn(`copy injection failed: ${err}`);
-    return null;
+    const reason = err instanceof Error ? err.message : String(err);
+    log.warn(`copy injection failed: ${reason}`);
+    return { outcome: "uninjectable", reason };
   }
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, COPY_POLL_MS));
     const current = clipboard.readText();
-    if (current !== sentinel) return current;
+    if (current !== sentinel) return { outcome: "answered", text: current };
   }
-  return null;
+  return { outcome: "unanswered" };
 }
 
 async function doCopySelection(
   options?: CopySelectionOptions,
-): Promise<string | null> {
+): Promise<SelectionCapture> {
   const prior = snapshotClipboard();
   // A sentinel rather than an empty clipboard: some apps and clipboard
   // managers repopulate an emptied clipboard, and comparing against the
@@ -633,22 +664,36 @@ async function doCopySelection(
   clipboard.writeText(sentinel);
 
   let selection: string | null = null;
+  // Kept only from the last attempt: a retry that reaches the app supersedes
+  // an earlier injection failure, so the verdict follows the best answer we
+  // got, not the first.
+  let uninjectable: string | null = null;
   const timeouts = options?.timeoutsMs ?? COPY_ATTEMPT_TIMEOUTS_MS;
   for (const [attempt, timeoutMs] of timeouts.entries()) {
     if (attempt > 0) {
       await new Promise((r) => setTimeout(r, COPY_RETRY_GAP_MS));
     }
-    selection = await attemptCopy(sentinel, timeoutMs);
-    if (selection !== null) break;
+    const result = await attemptCopy(sentinel, timeoutMs);
+    uninjectable = result.outcome === "uninjectable" ? result.reason : null;
+    if (result.outcome === "answered") {
+      selection = result.text;
+      break;
+    }
   }
 
   restoreClipboard(prior, selection ?? sentinel);
   log.debug(
     selection === null
-      ? "no selection copied"
+      ? uninjectable
+        ? `selection unreadable: ${uninjectable}`
+        : "no selection copied"
       : `copied ${selection.length} chars of selection`,
   );
-  return selection?.trim() ? selection : null;
+  // A whitespace-only answer is an answer: the app told us where the caret is
+  // and there is nothing under it. That is `empty`, not a failure.
+  if (selection?.trim()) return { status: "selected", text: selection };
+  if (uninjectable) return { status: "unavailable", reason: uninjectable };
+  return { status: "empty" };
 }
 
 let pasteChain: Promise<void> = Promise.resolve();
@@ -734,6 +779,37 @@ async function doPasteIntoFocusedApp(
  */
 export function pasteClipboardIntoFocusedApp(): Promise<void> {
   const run = (): Promise<void> => doPasteClipboard();
+  const result = pasteChain.then(run, run);
+  pasteChain = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+/**
+ * Paste an image as one clipboard transaction.
+ *
+ * The model-facing image composite promises not to replace the user's
+ * clipboard. Staging the image in one IPC call and pasting it in another could
+ * not keep that promise, because the second call had no record of what was
+ * there before staging. This keeps the snapshot, write, paste, and restore in
+ * the same serialized operation.
+ */
+export function pasteImageIntoFocusedApp(image: NativeImage): Promise<void> {
+  const run = async (): Promise<void> => {
+    const prior = snapshotClipboard();
+    clipboard.writeImage(image);
+    let pasted = false;
+    try {
+      await doPasteClipboard();
+      pasted = true;
+    } finally {
+      // As with text delivery, a failed paste leaves the staged payload on the
+      // clipboard as the only recoverable copy. A successful one restores it.
+      if (pasted) restoreClipboard(prior, "");
+    }
+  };
   const result = pasteChain.then(run, run);
   pasteChain = result.then(
     () => undefined,

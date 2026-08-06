@@ -292,7 +292,9 @@
       "hotkeyDesc": "Hold it and say what to change, or tap it for the quick routes.",
       "conflict": "This is already your dictation hotkey. Pick a different combination.",
       "bar": "Remix bar",
-      "barDesc": "Keep a small bar at the bottom of your screen. Hover it to open Remix."
+      "barDesc": "Keep a small bar at the bottom of your screen. Hover it to open Remix.",
+      "writingSkills": "Writing skills",
+      "writingSkillsDesc": "Route Remix through curated writing expertise (email, creative, academic, and more). Off until quality gates pass."
     }
   },
   "today": {

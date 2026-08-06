@@ -1,0 +1,270 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "repo": "softaworks/agent-toolkit",
+      "commit": "3027f20f3181758385a1bb8c022d4041dfb4de84",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 Leonardo Flores",
+      "files": [
+        {
+          "path": "skills/professional-communication/references/email-templates.md",
+          "hash": "01c238a6a1776cb46f369017834a39a8484b47c37b40e870fa9bed3d8700b02c"
+        },
+        {
+          "path": "skills/professional-communication/references/jargon-simplification.md",
+          "hash": "dea1a1a50b999197c6f0c7e2c761304f8ccd04f78ceb7b430debd05c10effd4b"
+        },
+        {
+          "path": "skills/professional-communication/SKILL.md",
+          "hash": "05ad4e12e2314cbc80b019eb21e0a8cf9250298839010c916827eae74af0d515"
+        },
+        {
+          "path": "skills/writing-clearly-and-concisely/elements-of-style/03-elementary-principles-of-composition.md",
+          "hash": "3867f33512ff2f0e965386dbb558579aab43ca10f070bd48d732584b9b5119e0"
+        },
+        {
+          "path": "skills/writing-clearly-and-concisely/elements-of-style/05-words-and-expressions-commonly-misused.md",
+          "hash": "60db286f5166b1b6f4d85a0cc39471b375fbd62d6057d3844533551fb09f2c2d"
+        },
+        {
+          "path": "skills/writing-clearly-and-concisely/signs-of-ai-writing.md",
+          "hash": "06d135c200e1bbfdbe90f433dfbdffeb9c4ea07f028a9a880f4026622e5c10fd"
+        },
+        {
+          "path": "skills/writing-clearly-and-concisely/SKILL.md",
+          "hash": "c5f4ecc8bfa7984d0df70d30cea3bfeb824f7b24d31db111d5a1a9a959880575"
+        }
+      ]
+    },
+    {
+      "repo": "haowjy/creative-writing-skills",
+      "commit": "52e6adce0951b14894732d7759392347b35a856f",
+      "license": "Apache-2.0",
+      "copyright": "Copyright held by the haowjy/creative-writing-skills authors",
+      "files": [
+        {
+          "path": "skills/creative-writing-craft/resources/genre/fantasy.md",
+          "hash": "b7cf6c8a25814f4bde30a6181337df5ea2c5596c5d0d35a8dd49409f83d18a64"
+        },
+        {
+          "path": "skills/creative-writing-craft/resources/genre/horror.md",
+          "hash": "f72591459e5cb53be93ebc092906b07d6f93aabb9b1a4ad806833bd683c1c38b"
+        },
+        {
+          "path": "skills/creative-writing-craft/resources/genre/litfic.md",
+          "hash": "181e3d51cceb5799acb48572ebfc7aa1a4e774c94894314fb12cb2c28557e00b"
+        },
+        {
+          "path": "skills/creative-writing-craft/resources/genre/mystery.md",
+          "hash": "b864c7380d2f12fcb8b0595041e024d0084943d1e8057d01b5bf18b24454b9aa"
+        },
+        {
+          "path": "skills/creative-writing-craft/resources/genre/romance.md",
+          "hash": "3384eaf17c13a0ddda80f152c0c65ad584068b9878fcc44f12dc4370ed581d38"
+        },
+        {
+          "path": "skills/creative-writing-craft/resources/genre/thriller.md",
+          "hash": "25dbe3dfa00754e633d9a3f59e96d14db54bf4bcc532f2d2e8f3ad0e2d7cbb5c"
+        },
+        {
+          "path": "skills/creative-writing-craft/resources/prose-writing.md",
+          "hash": "a78943d1fd9ab8fec738728f91ce81eeb007bf095ff6c8b3c40745899aa5a2d5"
+        },
+        {
+          "path": "skills/creative-writing-craft/resources/scene-construction.md",
+          "hash": "fce22dd09fb5df23bcbc09ea0a4429ab91915c5a9fc3fa9b4df5d0af77f0a3f8"
+        },
+        {
+          "path": "skills/creative-writing-craft/resources/style-analysis.md",
+          "hash": "2168822637fd4af215b3fdfe29d4958908828440aa6efff256092e9c91d28c28"
+        },
+        {
+          "path": "skills/creative-writing-craft/SKILL.md",
+          "hash": "78eb4bb789e3c98a4a837eaff4b0034d4102d2e8bd9c313ba081de8f00543f59"
+        },
+        {
+          "path": "skills/creative-writing-modes/resources/prose-modes.md",
+          "hash": "7147c339fc78fbf460cfbc1a2b92a627249aebba4dfce3f5c3ec72e4ef6841ea"
+        },
+        {
+          "path": "skills/creative-writing-modes/SKILL.md",
+          "hash": "87e221950767480d200994144ec7f8c6dff14c8fbcd3ca71f03aed123b4c2c34"
+        },
+        {
+          "path": "skills/reader-sim/SKILL.md",
+          "hash": "3c68115e7eb86e2614ebe821d158958881fcfa1acc953dc4998b514f363a7518"
+        },
+        {
+          "path": "skills/story-memory/resources/fact-extraction.md",
+          "hash": "e48de1bd2191a5fd9dd85970685c1c727532475caf448f7dadd975c55117ccff"
+        },
+        {
+          "path": "skills/story-memory/resources/story-context.md",
+          "hash": "6130c6924e258483700b7572fb1821d3f01e268386a7d4b6726839dc422e4fe6"
+        },
+        {
+          "path": "skills/story-memory/resources/story-reference-writing.md",
+          "hash": "71b903f6355f344d78d5a223d2a2841a63c197398cc8b2335c995ec298dacdc4"
+        },
+        {
+          "path": "skills/story-memory/resources/writing-artifacts.md",
+          "hash": "995eeb5da2841a743db231ee5c9dec1b401a51a200eb825fef9bc3616b7a823b"
+        },
+        {
+          "path": "skills/story-memory/resources/writing-issues.md",
+          "hash": "ffc0799bdc71711b68e88f9a6fb56d9af4a855037f6d87752b11b6c9683e08fc"
+        },
+        {
+          "path": "skills/story-memory/SKILL.md",
+          "hash": "629a2d16ed0626bc0395ea05f4d2c34509bd3008a70292439d5525efc3dd2909"
+        },
+        {
+          "path": "skills/story-planning/resources/brainstorming.md",
+          "hash": "e648910458b787e0649808f1b7a435cd437f1d0195081c9040af9ec739fb1ba5"
+        },
+        {
+          "path": "skills/story-planning/resources/brainstorming/chapter-planning.md",
+          "hash": "ee9fc7c4ead6dabb44ccd58e76f4360c80e8bd0ac51c9fefc1c374b5aa9048d4"
+        },
+        {
+          "path": "skills/story-planning/resources/brainstorming/character-development.md",
+          "hash": "1a27fec658e4170149f38540163607d7c763fd3faaeb0ced2581f39554e58667"
+        },
+        {
+          "path": "skills/story-planning/resources/brainstorming/continuity-timeline.md",
+          "hash": "0f5d0412c840279fc52a6569123ade70618d40a40820472957d5b69205772624"
+        },
+        {
+          "path": "skills/story-planning/resources/brainstorming/worldbuilding.md",
+          "hash": "80604b8b3438fd2000b92308879b2e01ba9109c4417571a37cbed0363c44f7ea"
+        },
+        {
+          "path": "skills/story-planning/resources/creative-direction.md",
+          "hash": "5d00b79d62edfd7fb52c51f54f6ebe8110b017158385a1448c5d8bb9950dc846"
+        },
+        {
+          "path": "skills/story-planning/resources/story-architecture.md",
+          "hash": "804c2814306947805806cebf2a280801ef32d7bd2fc3a750c7e6d3f6a044e8d6"
+        },
+        {
+          "path": "skills/story-planning/resources/story-architecture/arc-design.md",
+          "hash": "8f1461cf7826923dab02323d7bff315ffd428c2671f8da20fe430c4959f21126"
+        },
+        {
+          "path": "skills/story-planning/resources/story-architecture/chapter-and-scene.md",
+          "hash": "3f64bc6d48587076af9d3253bddbf3f2965afe96bcbdf719244464e1a9b4a56d"
+        },
+        {
+          "path": "skills/story-planning/resources/story-architecture/structural-problems.md",
+          "hash": "7409a7546f7c9ae5523e69cb0a47dafada30c936c51337ffa025767190e4d362"
+        },
+        {
+          "path": "skills/story-planning/SKILL.md",
+          "hash": "20b0323069ccf197eb310fdd41d27b687d91757bb615a546bd1d968d692e8f62"
+        },
+        {
+          "path": "skills/story-review/resources/copyedit.md",
+          "hash": "99600e56a1d6e9c7cac297f04b85e194318b9017c49c420fb158fcb3e7d4d640"
+        },
+        {
+          "path": "skills/story-review/resources/developmental-edit.md",
+          "hash": "b6317b7c8ef68943ab4ad10d3abfdc8ce5fbdbbfcfeb2ab3fe69c6733ed51667"
+        },
+        {
+          "path": "skills/story-review/resources/editorial-review.md",
+          "hash": "d731f237daa15d8df9513521bec5b7836d1f5393421018ca8d82a12511c66fbc"
+        },
+        {
+          "path": "skills/story-review/resources/line-edit.md",
+          "hash": "9b98ee377b359a4858708a4ada2c361d3d3612bcf6486d2ee4e922f4d59e1020"
+        },
+        {
+          "path": "skills/story-review/resources/proofreading.md",
+          "hash": "9f59f9ce71c2722e23e10cf7b69d7073afbd6748aa6101ba9911cb4b1e000a04"
+        },
+        {
+          "path": "skills/story-review/resources/prose-critique/antipatterns.md",
+          "hash": "b165830d65ba117929b9e337cb722bf993327086b4de6b3683866fe0fd42b547"
+        },
+        {
+          "path": "skills/story-review/resources/prose-critique/character.md",
+          "hash": "2836fe8ab432f5b9b48cbe603797bbcbb9c22c416ec23d743539fbcfbf4ae621"
+        },
+        {
+          "path": "skills/story-review/resources/prose-critique/continuity.md",
+          "hash": "6fd3b0fe94c6aeb7983afe79cb3131b58b9c59efdc3867cdf1201a10f9383d16"
+        },
+        {
+          "path": "skills/story-review/resources/prose-critique/prose.md",
+          "hash": "71fccfaecdc64b1b74cb2ea448bf6bec8669a457306e29039f0445640da592cf"
+        },
+        {
+          "path": "skills/story-review/resources/prose-critique/structure.md",
+          "hash": "785481adbbdf5672d93b0c0bf0774b8479476e496dc314b1244b3e4ee34bb490"
+        },
+        {
+          "path": "skills/story-review/resources/prose-critique/voice.md",
+          "hash": "23554d2011c13b942dae08b71177ffbac5d6a9d8c285d7e8ac35c8704cc8ae97"
+        },
+        {
+          "path": "skills/story-review/resources/reader-sim-signal.md",
+          "hash": "f25b4421ce0cb67e95a181aa0cc01aec27aac252a1502bb948ddf93ecf39568a"
+        },
+        {
+          "path": "skills/story-review/SKILL.md",
+          "hash": "33a57a6f00fa152611495b3b45943eec29244775c9fa6e4ca061d2440942e44b"
+        },
+        {
+          "path": "skills/writing-principles/resources/failure-modes.md",
+          "hash": "82da42f04e6c06864f679dc29ad67d90c89eca42006c1c4941a6dfe951e084ea"
+        },
+        {
+          "path": "skills/writing-principles/SKILL.md",
+          "hash": "0e4527012ada1af3c0c47a6f719ed967d82eea7d99bb5585ac38a97509459ba8"
+        }
+      ]
+    },
+    {
+      "repo": "coreyhaines31/marketingskills",
+      "commit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2025 Corey Haines",
+      "files": [
+        {
+          "path": "skills/copy-editing/SKILL.md",
+          "hash": "9b5a20be3dc5513c8f0b4f4c4960857e4d28ed83698a5b33c8dde9dc75a47bf6"
+        },
+        {
+          "path": "skills/copywriting/SKILL.md",
+          "hash": "ecdaabca28863d1472f79ba637842fdf4ac2fd9acc92b215ab7f152e757b2a33"
+        }
+      ]
+    },
+    {
+      "repo": "jamditis/claude-skills-journalism",
+      "commit": "c10dc76a9be09827c6091cab4448617262f4b575",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2025 Joe Amditis",
+      "files": [
+        {
+          "path": "research-toolkit/skills/academic-writing/SKILL.md",
+          "hash": "423eba83177e9b3bc47b2605962d51e8e64c64ab1b79797d7ca277ab40b8cb93"
+        }
+      ]
+    },
+    {
+      "repo": "rampstackco/claude-skills",
+      "commit": "e42ec5af1bd2b504325098bf6bb1400c11a6c512",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 RampStack Co.",
+      "files": [
+        {
+          "path": "skills/long-form-content-frameworks/SKILL.md",
+          "hash": "78a9699621fe4249617d1d994308631856602826d83597dd9d737265aea3a67e"
+        }
+      ]
+    }
+  ],
+  "bundleHash": "baff2a7286e86cc5df26192a7ea7b685faef66fb3726857ebc57c28467ea60d2"
+}

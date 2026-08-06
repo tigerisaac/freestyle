@@ -91,6 +91,8 @@ import { normalizePillCancelMode } from "../shared/pill-cancel";
 import {
   getDefaultRemixHotkey,
   REMIX_CLIPBOARD_PREVIEW_LIMIT,
+  type RemixSelectionState,
+  selectionText,
 } from "../shared/remix";
 import { bearerAuthHeaders } from "../shared/server-auth";
 import { SETTINGS_KEYS } from "../shared/settings-keys";
@@ -107,6 +109,7 @@ import {
   copySelectionFromFocusedApp,
   isWaylandSession,
   pasteClipboardIntoFocusedApp,
+  pasteImageIntoFocusedApp,
   pasteIntoFocusedApp,
   startLinuxPasteHelper,
   stopLinuxPasteHelper,
@@ -3080,12 +3083,19 @@ app.whenReady().then(async () => {
       return { ok: false, reason: "document-not-in-front" };
     }
     remixAnchor = { ...front, capturedAt: Date.now() };
-    const [selection, caps] = await Promise.all([
-      copySelectionFromFocusedApp().catch(() => null),
-      runMacAxCaps(),
-    ]);
+    // Caps first, then the target: the cheap AX probe can settle "nothing is
+    // selected" on its own and save the Copy keystroke the capture would cost.
+    // Fire-and-forget: a browser needs a moment to build its accessibility
+    // tree the first time anything asks, and the user is about to spend
+    // several seconds saying what they want. Starting it here means a later
+    // `surroundings` read finds the page already there instead of paying for
+    // the wait at the point the agent actually needs the text.
+    void runMacAxWarm();
+    const caps = await runMacAxCaps();
+    const target = await captureRemixTarget(caps);
+    const selection = selectionText(target);
     hotkeyLog.info(
-      `remix get-context: "${front.appName}"${selection ? ` · ${selection.length} chars selected` : " · no selection"} · precise=${caps?.settable ?? false}`,
+      `remix get-context: "${front.appName}" · ${describeTarget(target)} · precise=${caps?.settable ?? false}`,
     );
     const preview = clipboardPreviewFields();
     return {
@@ -3094,6 +3104,7 @@ app.whenReady().then(async () => {
       windowTitle: front.windowTitle,
       url: front.url,
       selection,
+      target,
       preciseSelection: caps?.settable ?? false,
       docLength: caps && caps.length >= 0 ? caps.length : null,
       clipboardPreview: preview.clipboard,
@@ -3118,6 +3129,21 @@ app.whenReady().then(async () => {
       selStart: ax.selStart,
       selLen: ax.selLen,
     };
+  });
+
+  // The window, not the field. Everything else here reads the focused element,
+  // which for a mail reply is an empty compose box — the message being replied
+  // to is a sibling of it and invisible to every other read.
+  ipcMain.handle("remix:read-surroundings", async () => {
+    if (!(await focusAnchorForInjection())) {
+      return { ok: false, reason: "document-not-in-front" };
+    }
+    const ax = await runMacAxWindow();
+    if (!ax?.text) return { ok: false, reason: "unsupported" };
+    hotkeyLog.info(
+      `remix read-surroundings: ${ax.text.length} chars from ${ax.nodes} nodes`,
+    );
+    return { ok: true, text: ax.text, truncated: ax.truncated };
   });
 
   ipcMain.handle("remix:select-all", async () => {
@@ -3148,10 +3174,22 @@ app.whenReady().then(async () => {
       return { ok: false, reason: "document-not-in-front" };
     }
     // Whole-document copy after select_all can be slow in rich editors.
-    const text = await copySelectionFromFocusedApp({
+    const capture = await copySelectionFromFocusedApp({
       timeoutsMs: [600, 2_000],
-    }).catch(() => null);
-    if (text === null) return { ok: false, reason: "nothing-copied" };
+    }).catch(() => ({ status: "unavailable" as const, reason: "copy-failed" }));
+    // The agent reads these reasons and picks a different approach, so the two
+    // failures stay distinct here too: nothing to copy is a fact about the
+    // document, an unreadable selection is a fact about the machine.
+    if (capture.status !== "selected") {
+      return {
+        ok: false,
+        reason:
+          capture.status === "empty"
+            ? "nothing-copied"
+            : "selection-unavailable",
+      };
+    }
+    const text = capture.text;
     return {
       ok: true,
       text: text.slice(0, 60_000),
@@ -3321,6 +3359,31 @@ app.whenReady().then(async () => {
     }
   });
 
+  // Image equivalent of remix:paste-text: fetch, paste, and restore the
+  // clipboard inside one main-process transaction. Two IPC calls could not keep
+  // the "your clipboard survives this" promise, because the second one has no
+  // record of what was there before the first staged the image.
+  ipcMain.handle("remix:paste-image", async (_event, url: unknown) => {
+    if (typeof url !== "string" || !url || url.length > 2_000) {
+      return { ok: false, reason: "bad-url" };
+    }
+    const image = await fetchRemixImage(url);
+    if (!image) return { ok: false, reason: "fetch-failed" };
+    if (!(await focusAnchorForInjection())) {
+      return { ok: false, reason: "document-not-in-front" };
+    }
+    try {
+      await pasteImageIntoFocusedApp(image);
+      if (remixPracticeTarget) {
+        settingsWindow?.webContents.send("remix:practice-delivered");
+      }
+      return { ok: true };
+    } catch (err) {
+      hotkeyLog.error(`Remix image paste failed: ${err}`);
+      return { ok: false, reason: "paste-failed" };
+    }
+  });
+
   // Re-read selection for typed follow-ups (document may have changed).
   ipcMain.handle("remix:recapture", async () => {
     // Pill may be key window while typing — yield before Copy or we read our own input.
@@ -3338,14 +3401,13 @@ app.whenReady().then(async () => {
     );
     if (inDocument) {
       remixAnchor = { ...front, capturedAt: Date.now() };
-      const selection = (await isSecureInputActive())
-        ? null
-        : await copySelectionFromFocusedApp().catch(() => null);
+      const target = await captureRemixTarget(await runMacAxCaps());
       hotkeyLog.info(
-        `remix recapture: ${selection ? `${selection.length} chars` : "no selection"} in "${front.appName}"`,
+        `remix recapture: ${describeTarget(target)} in "${front.appName}"`,
       );
       return {
-        selection,
+        selection: selectionText(target),
+        target,
         ...clipboardPreviewFields(),
         ...remixAnchor,
         stale: false,
@@ -3473,6 +3535,45 @@ async function runMacAxRead(): Promise<AxReadResult | null> {
   }
 }
 
+interface AxWindowResult {
+  text: string;
+  truncated: boolean;
+  nodes: number;
+}
+
+/**
+ * Read the whole focused window's text.
+ *
+ * Slower and coarser than `read` — it walks an interface rather than a text
+ * field, so it returns menu labels alongside the message — but it is the only
+ * read that can see what the user is replying to. The timeout is generous
+ * because a cold browser tree costs one bounded wait inside the helper.
+ */
+async function runMacAxWindow(): Promise<AxWindowResult | null> {
+  if (process.platform !== "darwin") return null;
+  const binary = getNativeBinaryPath("macos-ax");
+  if (!binary) return null;
+  try {
+    const out = await execAsync(binary, ["window"], 6000, 8 * 1024 * 1024);
+    return JSON.parse(out) as AxWindowResult;
+  } catch {
+    return null;
+  }
+}
+
+/** Ask the frontmost app to start building its accessibility tree. */
+async function runMacAxWarm(): Promise<void> {
+  if (process.platform !== "darwin") return;
+  const binary = getNativeBinaryPath("macos-ax");
+  if (!binary) return;
+  try {
+    await execAsync(binary, ["warm"], 2000);
+  } catch {
+    // Best effort by definition: a failed warm costs the later read a wait,
+    // never the read itself.
+  }
+}
+
 async function runMacAxSelect(start: number, len: number): Promise<boolean> {
   if (process.platform !== "darwin") return false;
   const binary = getNativeBinaryPath("macos-ax");
@@ -3485,19 +3586,64 @@ async function runMacAxSelect(start: number, len: number): Promise<boolean> {
   }
 }
 
-async function runMacAxCaps(): Promise<{
+interface AxCapsResult {
   settable: boolean;
   length: number;
-} | null> {
+  /** -1 when the element reports no selected range. */
+  selStart: number;
+  selLen: number;
+}
+
+async function runMacAxCaps(): Promise<AxCapsResult | null> {
   if (process.platform !== "darwin") return null;
   const binary = getNativeBinaryPath("macos-ax");
   if (!binary) return null;
   try {
     const out = await execAsync(binary, ["caps"], 3000);
-    return JSON.parse(out) as { settable: boolean; length: number };
+    return JSON.parse(out) as AxCapsResult;
   } catch {
     return null;
   }
+}
+
+/** One log-line phrase for a target, so the three capture sites read alike. */
+function describeTarget(target: RemixSelectionState): string {
+  switch (target.status) {
+    case "selected":
+      return `${target.text.length} chars selected`;
+    case "empty":
+      return "nothing selected (cursor)";
+    case "unavailable":
+      return `selection unreadable (${target.reason})`;
+  }
+}
+
+/**
+ * Read the target under the cursor, preferring the answer that costs nothing.
+ *
+ * When AX can see the focused element and reports a collapsed range, that is
+ * an authoritative "caret, nothing selected" — and we skip the injected Copy
+ * entirely, which is both faster and less intrusive than driving the app's
+ * own Copy only to learn there was nothing to copy. Everything AX cannot see
+ * (canvas editors, non-macOS, elements without a range) falls through to the
+ * clipboard capture, which distinguishes its own two failure modes.
+ *
+ * Secure input is checked first because it is the one case where the Copy must
+ * not be attempted at all: the OS is holding the keyboard for a password
+ * field, and an unreadable target is the honest answer.
+ */
+async function captureRemixTarget(
+  caps: AxCapsResult | null,
+): Promise<RemixSelectionState> {
+  if (await isSecureInputActive()) {
+    return { status: "unavailable", reason: "secure-input" };
+  }
+  if (caps && caps.selStart >= 0 && caps.selLen === 0)
+    return { status: "empty" };
+  return await copySelectionFromFocusedApp().catch((err) => ({
+    status: "unavailable" as const,
+    reason: err instanceof Error ? err.message : String(err),
+  }));
 }
 
 async function isSecureInputActive(): Promise<boolean> {
@@ -3997,12 +4143,11 @@ function captureRemixSelection(): void {
   if (remixSelectionRequested) return;
   remixSelectionRequested = true;
 
+  // The capture goes through the same AX-first path the other two sites use,
+  // so a caret in a native text field costs no injected Copy — which matters
+  // most here, with the user still holding the key down and waiting.
   void Promise.allSettled([
-    isSecureInputActive().then((secure) =>
-      secure
-        ? Promise.reject(new Error("secure-input"))
-        : copySelectionFromFocusedApp(),
-    ),
+    runMacAxCaps().then(captureRemixTarget),
     getFrontmostContext(),
   ]).then(([sel, front]) => {
     const context =
@@ -4010,11 +4155,25 @@ function captureRemixSelection(): void {
         ? front.value
         : { appName: null, windowTitle: null, url: null };
     remixAnchor = { ...context, capturedAt: Date.now() };
-    if (sel.status === "rejected") {
-      hotkeyLog.warn(`Selection capture failed: ${sel.reason}`);
+    // A rejection here is the capture layer itself failing, not the document
+    // answering — which is exactly the `unavailable` case, so it is reported
+    // as one rather than flattened into "nothing was highlighted".
+    const target: RemixSelectionState =
+      sel.status === "fulfilled"
+        ? sel.value
+        : {
+            status: "unavailable",
+            reason:
+              sel.reason instanceof Error
+                ? sel.reason.message
+                : String(sel.reason),
+          };
+    if (target.status === "unavailable") {
+      hotkeyLog.warn(`Selection capture failed: ${target.reason}`);
     }
     sendToPill("remix:selection", {
-      text: sel.status === "fulfilled" ? sel.value : null,
+      text: selectionText(target),
+      target,
       ...clipboardPreviewFields(),
       ...remixAnchor,
     });

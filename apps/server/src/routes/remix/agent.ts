@@ -8,10 +8,33 @@ import {
 } from "../../lib/freestyle-cloud.js";
 import { getDefaultModels } from "../../lib/providers.js";
 import { runRemixAgentLocally } from "../../lib/remix-agent.js";
+import { getThreadMemory, renderThreadMemory } from "../../lib/remix-memory.js";
+import { getActiveThread } from "../../lib/remix-store.js";
 import { getSessionToken, invalidateSession } from "../../lib/sessions.js";
 import { isCleanupModelSupported } from "../models.js";
 
 const log = createAppLogger("remix-agent");
+
+/** Remix can target a local Worker without rerouting managed STT or cleanup. */
+function remixCloudUrl(): string {
+  return (process.env.FREESTYLE_REMIX_CLOUD_URL || freestyleCloudUrl()).replace(
+    /\/$/,
+    "",
+  );
+}
+
+/** A shared token may replace cloud sign-in only for an explicit loopback dev Worker. */
+function localRemixDevToken(): string | null {
+  if (process.env.FREESTYLE_ENV !== "development") return null;
+  const token = process.env.REMIX_DEV_TOKEN?.trim();
+  if (!token) return null;
+  try {
+    const hostname = new URL(remixCloudUrl()).hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1" ? token : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * One agent turn. On Freestyle Cloud the loop runs on the Worker and this
@@ -24,6 +47,12 @@ const agentRoute = new Hono().post(
   zValidator("json", remixAgentRequestSchema),
   async (c) => {
     const body = c.req.valid("json");
+    // Both lanes read the same local memory; only the BYOK lane can be handed
+    // the id, so the cloud lane gets the rendered text injected below.
+    const threadId = getActiveThread()?.id;
+    const threadMemory = threadId
+      ? renderThreadMemory(getThreadMemory(threadId))
+      : "";
     const llm = getDefaultModels().llm;
     if (!llm) {
       return c.json(
@@ -36,20 +65,31 @@ const agentRoute = new Hono().post(
     }
 
     if (llm.provider === FREESTYLE_CLOUD_PROVIDER_ID) {
-      const token = getSessionToken();
-      if (!token) return c.json({ error: "cloud_auth_required" }, 401);
+      const devToken = localRemixDevToken();
+      // Never forward a production session token to a local development
+      // Worker. The shared dev token is the only credential it needs.
+      const token = devToken ? null : getSessionToken();
+      if (!token && !devToken) {
+        return c.json({ error: "cloud_auth_required" }, 401);
+      }
 
       let upstream: Response;
       try {
-        upstream = await fetch(`${freestyleCloudUrl()}/v2/remix`, {
+        upstream = await fetch(`${remixCloudUrl()}/v2/remix`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...(devToken ? { "X-Freestyle-Remix-Dev": devToken } : {}),
           },
           body: JSON.stringify({
             messages: body.messages,
-            context: body.context,
+            // The thread's memory is injected here rather than sent by the
+            // renderer: it lives in this process's SQLite, and Freestyle
+            // Cloud stores none of it. The Worker receives it as context for
+            // one request and keeps nothing, exactly as it does the selection.
+            context: { ...body.context, memory: threadMemory || undefined },
+            skills: body.skills,
           }),
           signal: c.req.raw.signal,
         });
@@ -85,15 +125,20 @@ const agentRoute = new Hono().post(
         );
       }
 
-      // The UI message stream passes through byte-for-byte.
-      return new Response(upstream.body, {
-        headers: {
-          "Content-Type":
-            upstream.headers.get("Content-Type") ?? "text/event-stream",
-          "Cache-Control": "no-cache",
-          "x-vercel-ai-ui-message-stream": "v1",
-        },
-      });
+      // The UI message stream passes through byte-for-byte. The skill
+      // headers are forwarded with it so the pill's chip behaves the same
+      // whether the loop ran on the Worker or in this process.
+      const passthrough: Record<string, string> = {
+        "Content-Type":
+          upstream.headers.get("Content-Type") ?? "text/event-stream",
+        "Cache-Control": "no-cache",
+        "x-vercel-ai-ui-message-stream": "v1",
+      };
+      for (const header of ["X-Freestyle-Skill", "X-Freestyle-Skill-Label"]) {
+        const value = upstream.headers.get(header);
+        if (value) passthrough[header] = value;
+      }
+      return new Response(upstream.body, { headers: passthrough });
     }
 
     if (!(await isCleanupModelSupported(llm.provider, llm.model_id))) {
@@ -107,7 +152,13 @@ const agentRoute = new Hono().post(
     }
 
     try {
-      return await runRemixAgentLocally(body, llm, c.req.raw.signal);
+      return await runRemixAgentLocally(
+        body,
+        llm,
+        c.req.raw.signal,
+        body.skills,
+        threadId,
+      );
     } catch (err) {
       log.error(`Remix agent (BYOK) failed: ${err}`);
       return c.json(

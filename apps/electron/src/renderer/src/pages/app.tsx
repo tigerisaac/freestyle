@@ -1,6 +1,7 @@
 import { REMIX_PRESETS } from "@freestyle-voice/validations";
 import { FreestyleMark } from "@renderer/components/freestyle-mark";
 import {
+  REMIX_CHAT_MIN_HEIGHT,
   REMIX_CHAT_STRIP,
   REMIX_CHAT_SURFACE,
 } from "@renderer/components/remix-chat-surface";
@@ -15,7 +16,6 @@ import {
 } from "@renderer/lib/api";
 import {
   applyNeedsAppContextForCleanup,
-  getNeedsAppContextForCleanup,
   refreshNeedsAppContextForCleanup,
 } from "@renderer/lib/cleanup-app-context";
 import { Recorder, RecorderSupersededError } from "@renderer/lib/recorder";
@@ -358,9 +358,18 @@ const ALERT = "#E0805F";
  */
 const BAR_COLOR = "#FFFFFF";
 
-// No drop shadow: the capsule and cards sit flush on whatever is behind
-// them, separated by their hairline border alone.
+// The capsule sits flush on whatever is behind it, separated by its hairline
+// border alone — it is small and transient enough to get away with it.
 const PILL_SHADOW = "none";
+
+/** The card is neither. It is a big surface that stands over someone else's
+ * work for as long as they need it, so it casts: a tight contact shadow to
+ * seat the edge, and a wide ambient one for the lift. */
+const CARD_SHADOW = [
+  "0 1px 2px rgba(0, 0, 0, 0.32)",
+  "0 10px 24px -8px rgba(0, 0, 0, 0.46)",
+  "0 30px 60px -24px rgba(0, 0, 0, 0.40)",
+].join(", ");
 
 const pillInnerStyle: React.CSSProperties = {
   height: PILL_HEIGHT,
@@ -1520,10 +1529,8 @@ export default function AppPage(): React.JSX.Element {
         getStreamer().setContext(null);
       } catch {}
 
-      // Whether cleanup routing needs the frontmost app is read from the cache
-      // primed at mount and kept fresh by the `cleanup-context-changed` IPC —
-      // no per-recording GET /api/settings on this hot path.
-      if (getNeedsAppContextForCleanup()) {
+      void refreshNeedsAppContextForCleanup().then((needsAppContext) => {
+        if (!needsAppContext || !wantsMicRef.current) return;
         void window.api
           ?.getFrontmostApp()
           .then((app) => {
@@ -1540,7 +1547,7 @@ export default function AppPage(): React.JSX.Element {
               getStreamer().setContext(null);
             } catch {}
           });
-      }
+      });
 
       // Keep initializing as bookkeeping; the waveform starts at rest.
       setPillState("initializing");
@@ -1967,16 +1974,40 @@ export default function AppPage(): React.JSX.Element {
   );
 
   const closeRemix = useCallback(() => endRemix(), [endRemix]);
+
+  /**
+   * Whether this session's card has been opened out of the strip.
+   *
+   * It lives here rather than in RemixChat because expanding has two
+   * entrances — the card's own mouseenter, and the main process's cursor
+   * poll arriving through `onPillHotEnter` — and a flag set on only one of
+   * them made "leave the card" close sometimes and re-minimize other times,
+   * depending on which entrance the pointer happened to trip.
+   */
+  const chatReopenedRef = useRef(false);
   const expandRemixChat = useCallback(() => {
     if (remixRef.current?.minimized !== false) {
+      chatReopenedRef.current = true;
       patchRemix({ minimized: false });
     }
   }, [patchRemix]);
   const minimizeRemixChat = useCallback(() => {
-    if (remixRef.current && remixRef.current.minimized !== true) {
-      patchRemix({ minimized: true });
+    if (!remixRef.current) return;
+    // The strip has already done its job once it has been opened; dropping
+    // back to it would just leave a second thing to dismiss.
+    if (chatReopenedRef.current) {
+      endRemix();
+      return;
     }
-  }, [patchRemix]);
+    if (remixRef.current.minimized !== true) patchRemix({ minimized: true });
+  }, [endRemix, patchRemix]);
+
+  // Keyed on the session rather than reset at each teardown site, so a new
+  // entry point into Remix can't forget to clear it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the session id is the trigger, not an input — the reset is the whole point
+  useEffect(() => {
+    chatReopenedRef.current = false;
+  }, [remix?.id]);
 
   /**
    * Show a failure and leave the card up. Unlike the phases above this one
@@ -2435,12 +2466,6 @@ export default function AppPage(): React.JSX.Element {
         _audioPlaybackMode = normalizeAudioPlaybackMode(mode);
       },
     );
-    // A cleanup-relevant setting (llm_cleanup / a cleanup tone) changed in the
-    // dashboard. Refresh the cached routing decision once here so startRecording
-    // reads it synchronously instead of fetching /api/settings every press.
-    const removeCleanupContext = window.api?.onCleanupContextChanged(() => {
-      void refreshNeedsAppContextForCleanup();
-    });
     // The server target (URL/token) changed in Settings. Re-point this window's
     // API client and tear down the streamer so its next connection uses the new
     // server — no app restart needed. A fresh streamer is created immediately so
@@ -2462,7 +2487,6 @@ export default function AppPage(): React.JSX.Element {
       removeCancelMode?.();
       removeAudioDucking?.();
       removeAudioPlaybackMode?.();
-      removeCleanupContext?.();
       removeServerChanged?.();
     };
   }, [applyPillPosition, getStreamer]);
@@ -2705,8 +2729,18 @@ export default function AppPage(): React.JSX.Element {
   const [remixMiniHeight, setRemixMiniHeight] = useState<number>(
     REMIX_CHAT_STRIP.height,
   );
+  // The full card's height, reported by RemixChat from its own content. The
+  // window's room is unchanged (still the 560 cap), so a shorter card just
+  // occupies less of a space that is already reserved — no window resize,
+  // and the morph transition already animates height.
+  const [remixCardHeight, setRemixCardHeight] = useState<number>(
+    REMIX_CHAT_MIN_HEIGHT,
+  );
   useEffect(() => {
-    if (!showRemixChat) setRemixMiniHeight(REMIX_CHAT_STRIP.height);
+    if (!showRemixChat) {
+      setRemixMiniHeight(REMIX_CHAT_STRIP.height);
+      setRemixCardHeight(REMIX_CHAT_MIN_HEIGHT);
+    }
   }, [showRemixChat]);
 
   // Hold the initial hidden state for one frame so the enter transition runs.
@@ -2985,6 +3019,12 @@ export default function AppPage(): React.JSX.Element {
   // declaring the region here made it swallow every mouse event the pill
   // should have seen: no hover to reveal the cancel button, and no click
   // landing on it. Each card claims the region only while it is really up.
+  // No backdrop-filter here, unlike the capsule: at SURFACE's 0.98 alpha the
+  // blur renders nothing at all, so the card was paying for a compositing
+  // pass that showed zero pixels. What it actually lacked was depth — this is
+  // a window floating over someone else's document, and a hairline border
+  // alone left it looking pasted on. Contact shadow plus ambient, both
+  // offset downward.
   const cardSurfaceStyle: React.CSSProperties = {
     // The card travels a little further than the capsule, being bigger.
     ...riseBy(14),
@@ -2992,8 +3032,7 @@ export default function AppPage(): React.JSX.Element {
     borderRadius: 20,
     background: SURFACE,
     border: SURFACE_BORDER,
-    backdropFilter: BLUR,
-    WebkitBackdropFilter: BLUR,
+    boxShadow: CARD_SHADOW,
     transformOrigin,
     marginBottom: pillAlign === "end" ? 8 : 0,
     marginTop: pillAlign === "start" ? 8 : 0,
@@ -3197,6 +3236,29 @@ export default function AppPage(): React.JSX.Element {
               width 320ms cubic-bezier(0.3, 0.9, 0.3, 1),
               height 320ms cubic-bezier(0.3, 0.9, 0.3, 1),
               border-radius 320ms cubic-bezier(0.3, 0.9, 0.3, 1);
+          }
+
+          /* The chat card leaves the way it arrived, reversed.
+             Without this it inherited .pill-card[data-show="false"], which
+             collapses to scale(0.32, 0.34) at a 60px radius — that is the
+             *dictation* card's exit, folding itself back into the capsule it
+             came out of. The chat card never came out of the capsule, so
+             folding into one read as a different animation entirely.
+             Here it retraces its own summon instead: back down toward the
+             anchored edge, back into the blur, holding its own shape. Shorter
+             than the entrance and with no overshoot, because something on its
+             way out shouldn't ask to be watched. */
+          .pill-card.pill-chat-morph[data-show="false"] {
+            transform: scale(0.93)
+              translateY(calc(var(--pill-rise, 10px) * 0.55));
+            border-radius: 18px;
+            filter: blur(3px);
+            transition: opacity 130ms ease,
+              transform 170ms cubic-bezier(0.36, 0, 0.66, -0.2),
+              filter 130ms ease,
+              width 170ms cubic-bezier(0.36, 0, 0.66, -0.2),
+              height 170ms cubic-bezier(0.36, 0, 0.66, -0.2),
+              border-radius 170ms ease;
           }
 
           /* ---- Remix card ---- */
@@ -3783,10 +3845,6 @@ export default function AppPage(): React.JSX.Element {
               separate layers: a phase flip animates one out while the other
               rises, and each holds its last content while it leaves. */}
           <div className={layerClass} aria-hidden={!(remixOpen && !viewIsChat)}>
-            {/* The card surface is a container, not a control — these handlers
-                only arm/disarm the window's hover hit-rect; every real action
-                inside is its own labeled <button>. */}
-            {/* biome-ignore lint/a11y/noStaticElementInteractions: see above */}
             <div
               ref={cardSurfaceRef}
               className="pill-surface pill-card"
@@ -3919,9 +3977,6 @@ export default function AppPage(): React.JSX.Element {
               always inside room the window already holds, so the morph is
               never clipped or resized mid-flight. */}
           <div className={layerClass} aria-hidden={!(remixOpen && viewIsChat)}>
-            {/* Same as the card surface above: hover only arms/disarms the
-                window's hit-rect; the chat's controls are real buttons. */}
-            {/* biome-ignore lint/a11y/noStaticElementInteractions: see above */}
             <div
               ref={chatSurfaceRef}
               className="pill-surface pill-card pill-chat-morph"
@@ -3943,7 +3998,7 @@ export default function AppPage(): React.JSX.Element {
                     }
                   : {
                       width: REMIX_CHAT_SURFACE.width,
-                      height: REMIX_CHAT_SURFACE.height,
+                      height: remixCardHeight,
                       borderRadius: 18,
                       padding: 0,
                       overflow: "hidden",
@@ -3971,6 +4026,7 @@ export default function AppPage(): React.JSX.Element {
                     onMinimize={minimizeRemixChat}
                     onClose={closeRemix}
                     onMiniHeightChange={setRemixMiniHeight}
+                    onHeightChange={setRemixCardHeight}
                   />
                 </Suspense>
               )}
