@@ -7,6 +7,7 @@ import { ThinkingShimmer } from "@renderer/components/agents/loading-states/thin
 import { MessageScroller } from "@renderer/components/agents/message-scroller";
 import { capture } from "@renderer/lib/analytics";
 import { apiFetch } from "@renderer/lib/api";
+import { EASE_MORPH_CSS, EASE_OUT_CSS, MORPH_MS } from "@renderer/lib/ease";
 import {
   beginRemixTurn,
   createSession,
@@ -23,6 +24,7 @@ import {
   type ToolUIPart,
   type UIMessage,
 } from "ai";
+import { ArrowUp, ChevronRight, Plus, Square, X } from "lucide-react";
 import { domMax, LazyMotion } from "motion/react";
 import type React from "react";
 import {
@@ -208,16 +210,16 @@ export function RemixChat(props: RemixChatProps): React.JSX.Element {
 }
 
 /**
- * The pill's status mark, at the one size both states share.
- *
- * `MINI_MARK` is the box; everything drawn into it is centred and clipped to
- * it, so the running orb and the settled check occupy identical space and the
- * line of text beside them never shifts when a run lands.
+ * The box both marks are centred in, so the line of text beside them never
+ * shifts when a run lands.
  */
 const MINI_MARK = 22;
 
-/** The one entrance curve the pill's marks share. */
-const REMIX_EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+/**
+ * The settled check's ink, inset from that box: a solid disc reads heavier
+ * than the orb's dotted sphere at the same diameter.
+ */
+const REST_MARK = 19;
 
 /**
  * The running orb, at its native scale.
@@ -242,7 +244,12 @@ const SWEEP_FLOOD_MS = 300;
 const SWEEP_TOTAL_MS = SWEEP_ARC_MS + SWEEP_FLOOD_MS;
 const SWEEP_ARC_END = SWEEP_ARC_MS / SWEEP_TOTAL_MS;
 
-function RestMark({ failed }: { failed: boolean }) {
+/**
+ * @param active Whether the strip is the visible face. Both faces stay
+ * mounted, so an ungated sweep burns behind `opacity: 0` and leaves a check
+ * already drawn by the time the pill shows it.
+ */
+function RestMark({ failed, active }: { failed: boolean; active: boolean }) {
   const maskId = useId();
   const arcRef = useRef<SVGCircleElement | null>(null);
   const discRef = useRef<SVGRectElement | null>(null);
@@ -263,6 +270,8 @@ function RestMark({ failed }: { failed: boolean }) {
     const arc = arcRef.current;
     const disc = discRef.current;
     if (!arc || !disc) return;
+    // Nothing to play to: the strip is the hidden face right now.
+    if (!active) return;
     if (
       typeof window === "undefined" ||
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ===
@@ -279,62 +288,65 @@ function RestMark({ failed }: { failed: boolean }) {
       duration: SWEEP_TOTAL_MS,
       fill: "none",
     };
-    const running = [
-      arc.animate(
-        [
-          {
-            offset: 0,
-            opacity: 1,
-            strokeDashoffset: `${circumference}`,
-            easing: REMIX_EASE_OUT,
-          },
-          {
-            offset: SWEEP_ARC_END,
-            opacity: 1,
-            strokeDashoffset: "0",
-            easing: "ease-out",
-          },
-          { offset: SWEEP_ARC_END + 0.09, opacity: 0, strokeDashoffset: "0" },
-          { offset: 1, opacity: 0, strokeDashoffset: "0" },
-        ],
-        options,
-      ),
-      disc.animate(
-        [
-          {
-            offset: 0,
-            transform: "scale(0.42)",
-            opacity: 0,
-            filter: "blur(1.4px)",
-            easing: "linear",
-          },
-          {
-            offset: SWEEP_ARC_END,
-            transform: "scale(0.42)",
-            opacity: 0,
-            filter: "blur(1.4px)",
-            // Overshoots a few percent and settles back. A straight ease-out
-            // landed the colour like a light switch, with nowhere for the
-            // impact to go; the blur resolving alongside keeps the arc and the
-            // disc reading as one object rather than two swapping places.
-            easing: "cubic-bezier(0.34, 1.16, 0.36, 1)",
-          },
-          {
-            offset: 0.75,
-            transform: "scale(1.055)",
-            opacity: 1,
-            filter: "blur(0px)",
-          },
-          { offset: 1, transform: "scale(1)", opacity: 1, filter: "blur(0px)" },
-        ],
-        options,
-      ),
+    const arcFrames: Keyframe[] = [
+      {
+        offset: 0,
+        opacity: 1,
+        strokeDashoffset: `${circumference}`,
+        easing: EASE_OUT_CSS,
+      },
+      {
+        offset: SWEEP_ARC_END,
+        opacity: 1,
+        strokeDashoffset: "0",
+        easing: "ease-out",
+      },
+      { offset: SWEEP_ARC_END + 0.09, opacity: 0, strokeDashoffset: "0" },
+      { offset: 1, opacity: 0, strokeDashoffset: "0" },
     ];
+    const discFrames: Keyframe[] = [
+      {
+        offset: 0,
+        transform: "scale(0.42)",
+        opacity: 0,
+        filter: "blur(1.4px)",
+        easing: "linear",
+      },
+      {
+        offset: SWEEP_ARC_END,
+        transform: "scale(0.42)",
+        opacity: 0,
+        filter: "blur(1.4px)",
+        // Overshoots a few percent and settles back. A straight ease-out
+        // landed the colour like a light switch, with nowhere for the
+        // impact to go; the blur resolving alongside keeps the arc and the
+        // disc reading as one object rather than two swapping places.
+        easing: "cubic-bezier(0.34, 1.16, 0.36, 1)",
+      },
+      {
+        offset: 0.75,
+        transform: "scale(1.055)",
+        opacity: 1,
+        filter: "blur(0px)",
+      },
+      { offset: 1, transform: "scale(1)", opacity: 1, filter: "blur(0px)" },
+    ];
+
+    // One frame of daylight: the same commit grows the pill, and starting into
+    // that window resize drops the arc leg.
+    let running: Animation[] = [];
+    const frame = requestAnimationFrame(() => {
+      running = [
+        arc.animate(arcFrames, options),
+        disc.animate(discFrames, options),
+      ];
+    });
     // Without this a re-mount stacks a second copy on the first.
     return () => {
+      cancelAnimationFrame(frame);
       for (const animation of running) animation.cancel();
     };
-  }, [circumference]);
+  }, [circumference, active]);
 
   const color = failed ? "rgba(224, 128, 95, 0.92)" : INK;
   const glyph = failed ? (
@@ -359,8 +371,8 @@ function RestMark({ failed }: { failed: boolean }) {
   return (
     <span className="remix-mini-mark">
       <svg
-        width={MINI_MARK}
-        height={MINI_MARK}
+        width={REST_MARK}
+        height={REST_MARK}
         viewBox="0 0 16 16"
         aria-hidden="true"
       >
@@ -413,7 +425,8 @@ function MiniStrip(props: {
         {props.busy ? (
           <MiniOrb state="composing" />
         ) : (
-          <RestMark failed={props.failed === true} />
+          /* MiniStrip only ever renders as the minimized face. */
+          <RestMark failed={props.failed === true} active />
         )}
         <span className="remix-mini-line remix-mini-text">{props.text}</span>
       </div>
@@ -508,7 +521,6 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
       cancelled = true;
     };
   }, []);
-
 
   /**
    * What the model's tools actually do, and what it remembers between them.
@@ -684,20 +696,23 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
   const hasContentRef = useRef(false);
   hasContentRef.current = messages.length > 0;
 
-  const narrating = useMemo(
-    () =>
-      messages.some(
-        (message) =>
-          message.role === "assistant" &&
-          message.parts.some(
-            (part) =>
-              isToolOrDynamicToolUIPart(part) &&
-              part.state !== "output-available" &&
-              part.state !== "output-error",
-          ),
-      ),
-    [messages],
-  );
+  /**
+   * Only the turn in progress can hold a live tool call. Scanning the whole
+   * thread let one non-terminal part pin the orb to "searching" for good.
+   */
+  const narrating = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (message.role !== "assistant") continue;
+      return message.parts.some(
+        (part) =>
+          isToolOrDynamicToolUIPart(part) &&
+          part.state !== "output-available" &&
+          part.state !== "output-error",
+      );
+    }
+    return false;
+  }, [messages]);
 
   const [settled, setSettled] = useState(false);
   useEffect(() => {
@@ -810,12 +825,25 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
     return () => document.removeEventListener("keydown", onKey);
   }, [minimized, onClose]);
 
+  /**
+   * The last unbroken run of text — the answer, without the narration that
+   * preceded the work, which the activity rows already cover. Anchored on the
+   * last run rather than "after the final tool" so a turn signing off with a
+   * delivery tool keeps its answer.
+   */
   const finalText = useMemo(() => {
     if (busy) return null;
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i];
       if (message.role !== "assistant") continue;
+      const end = message.parts.findLastIndex(
+        (part) => isTextUIPart(part) && part.text.trim() !== "",
+      );
+      if (end === -1) return null;
+      let start = end;
+      while (start > 0 && isTextUIPart(message.parts[start - 1])) start--;
       const text = message.parts
+        .slice(start, end + 1)
         .filter(isTextUIPart)
         .map((part) => part.text)
         .join("")
@@ -825,16 +853,14 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
     return null;
   }, [messages, busy]);
   /**
-   * The pill opens into the minimized card once — when a run lands.
+   * Completion is the one moment worth more room than a line, because the
+   * answer has arrived and the user is not in front of it.
    *
-   * A pill is the resting shape: leaving the big card collapses to one line,
-   * and one line is all a run in flight ever shows. Completion is the single
-   * moment worth more room, because the answer has just arrived and the user
-   * is not in front of it. Everything else stays at strip height, so this
-   * reads as the pill opening rather than as a second card that never left.
+   * Not gated on `minimized`: the strip is only visible while minimized, and
+   * gating made the outgoing face restructure mid-exit — hovering to expand
+   * flashed the one-line form at 44px against the bottom edge.
    */
-  const showFullFinal =
-    minimized && settled && notice === null && finalText !== null;
+  const showFullFinal = settled && notice === null && finalText !== null;
   const miniMessageRef = useRef<HTMLDivElement | null>(null);
   const [miniContentHeight, setMiniContentHeight] = useState<number | null>(
     null,
@@ -1019,7 +1045,7 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
             {busy || !settled ? (
               <MiniOrb state={narrating ? "searching" : "composing"} />
             ) : (
-              <RestMark failed={notice !== null} />
+              <RestMark failed={notice !== null} active={minimized} />
             )}
             {showFullFinal ? (
               <div className="remix-mini-message" ref={miniMessageRef}>
@@ -1058,19 +1084,7 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
                 aria-label="Start a new thread"
                 title="Start a new thread"
               >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 14 14"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M7 2.5v9M2.5 7h9"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                </svg>
+                <Plus size={13} strokeWidth={1.7} aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -1082,19 +1096,7 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
                 aria-label="Close"
                 title="Close (Esc)"
               >
-                <svg
-                  width="11"
-                  height="11"
-                  viewBox="0 0 10 10"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M2 2l6 6M8 2l-6 6"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                </svg>
+                <X size={12} strokeWidth={1.7} aria-hidden="true" />
               </button>
             </span>
           </div>
@@ -1193,49 +1195,30 @@ function RemixThread(props: RemixThreadProps): React.JSX.Element {
                 }
               }}
             />
-            {busy ? (
-              <button
-                type="button"
-                className="remix-chat-send"
-                onClick={() => stop()}
-                aria-label="Stop"
-                title="Stop"
-              >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 12 12"
+            {/* One button, two glyphs: the state that changes is the run's,
+                not the control's. The outgoing glyph blurs so the swap reads
+                as one object. */}
+            <button
+              type="button"
+              className="remix-chat-send"
+              data-busy={busy}
+              disabled={!busy && !input.trim()}
+              onClick={busy ? () => stop() : submit}
+              aria-label={busy ? "Stop" : "Send"}
+              title={busy ? "Stop" : "Send"}
+            >
+              <span className="remix-chat-send-glyph" data-on={!busy}>
+                <ArrowUp size={14} strokeWidth={2} aria-hidden="true" />
+              </span>
+              <span className="remix-chat-send-glyph" data-on={busy}>
+                <Square
+                  size={11}
+                  strokeWidth={0}
+                  fill="currentColor"
                   aria-hidden="true"
-                >
-                  <rect x="1.5" y="1.5" width="9" height="9" rx="2" />
-                </svg>
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="remix-chat-send"
-                disabled={!input.trim()}
-                onClick={submit}
-                aria-label="Send"
-                title="Send"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 16 16"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M8 12.8V3.6M4.1 7.4 8 3.5l3.9 3.9"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-            )}
+                />
+              </span>
+            </button>
           </div>
         </div>
       </LazyMotion>
@@ -1299,7 +1282,9 @@ function latestActivity(messages: UIMessage[], busy: boolean): string {
         };
         const finished =
           part.state === "output-available" || part.state === "output-error";
-        return finished && !busy ? labels.done : labels.doing;
+        // Keyed on the tool's state, not the run's: gating on `!busy` left a
+        // fast search reading "Searching the web…" for the rest of the turn.
+        return finished ? labels.done : labels.doing;
       }
       if (isTextUIPart(part) && part.text.trim()) {
         // While streaming, the first line grows every chunk — that thrashing
@@ -1415,23 +1400,13 @@ function ToolStepLabel({
         aria-expanded={open}
       >
         <span className="remix-chat-step-label">{label}</span>
-        <svg
+        <ChevronRight
           className="remix-chat-step-chevron"
           data-open={open}
-          width="8"
-          height="8"
-          viewBox="0 0 8 8"
+          size={9}
+          strokeWidth={1.7}
           aria-hidden="true"
-        >
-          <path
-            d="M2.5 1.5 5.5 4 2.5 6.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        />
       </button>
       <AgentDisclosure open={open}>
         {/* Spans: AgentActivity puts labels in a <span>; block tags would be invalid. */}
@@ -1549,51 +1524,50 @@ const REMIX_CHAT_CSS = `
     color: ${INK};
   }
 
+  /* One shape changing, not two surfaces swapping: the incoming face lands as
+     .pill-chat-morph finishes resizing the box (${MORPH_MS}ms). No visibility
+     — a stepped one cannot retarget, and expand is onMouseEnter, so a graze
+     could strand a face visible but unhittable. */
   .remix-chat-face-strip {
     opacity: 0;
     pointer-events: none;
-    visibility: hidden;
-    transition: opacity 110ms ease, visibility 0s 110ms;
+    transition: opacity 150ms ease;
   }
   .remix-chat[data-minimized="true"] .remix-chat-face-strip {
     opacity: 1;
     pointer-events: auto;
-    visibility: visible;
-    transition: opacity 200ms ease 60ms, visibility 0s;
+    transition: opacity 210ms ${EASE_MORPH_CSS} ${MORPH_MS - 210}ms;
   }
   .remix-chat-face-full {
     display: flex;
     flex-direction: column;
     min-height: 0;
     opacity: 1;
-    visibility: visible;
-    transition: opacity 220ms ease 60ms, visibility 0s;
+    pointer-events: auto;
+    transition: opacity 210ms ${EASE_MORPH_CSS} ${MORPH_MS - 210}ms;
   }
   .remix-chat[data-minimized="true"] .remix-chat-face-full {
     opacity: 0;
     pointer-events: none;
-    visibility: hidden;
-    transition: opacity 110ms ease, visibility 0s 110ms;
+    transition: opacity 150ms ease;
   }
 
-  /* Padding is measured to the mark's box, not to the ink inside it. The
-     22px mark is mostly air at its edges, so a 13px inset — right for the 7px
-     dot this replaced — put the orb almost against the rim. 11px left against
-     16px right reads as even, because the mark's own margin makes up the
-     difference. */
+  /* Padding is measured to the mark's box, not the ink inside it, so 12 left
+     against 16 right reads as even — the mark's own air makes up the rest. */
   .remix-mini {
     display: flex;
     align-items: center;
     gap: 8px;
     height: 100%;
-    padding: 0 16px 0 11px;
+    padding: 0 16px 0 12px;
   }
   /* Opened by a landed answer. Top-aligned, because a paragraph beside a
-     centred mark reads as misaligned the moment it wraps to a second line. */
+     centred mark reads as misaligned the moment it wraps. Vertical padding
+     sums to MINI_STRIP_PAD, which is what measures the grown pill. */
   .remix-mini[data-full="true"] {
     align-items: flex-start;
     height: 100%;
-    padding: 11px 16px 12px 11px;
+    padding: 12px 16px 12px 12px;
   }
   .remix-mini[data-full="true"] .remix-mini-mark { margin-top: -1px; }
   .remix-mini-message {
@@ -1606,14 +1580,28 @@ const REMIX_CHAT_CSS = `
     color: ${INK_DIM};
   }
 
+  /* The box morphs over ${MORPH_MS}ms; without this the words inside swapped
+     in one frame, and it read as the card vanishing and a strip appearing.
+     Opens at 0.55, not 0: a throttled window parks an animation on its first
+     frame — no fill mode reaches a timeline stuck at t=0 — so that frame has
+     to stay legible. */
+  .remix-mini-message,
+  .remix-mini-line {
+    animation: remix-mini-content ${MORPH_MS - 60}ms ${EASE_MORPH_CSS};
+  }
+  @keyframes remix-mini-content {
+    from { opacity: 0.55; transform: translateY(-2px); }
+    to { opacity: 1; transform: none; }
+  }
+
   /* One box for both states, so the text does not shift when a run lands. */
   .remix-mini-mark {
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: ${MINI_MARK}px;
+    height: ${MINI_MARK}px;
     overflow: hidden;
   }
 
@@ -1661,9 +1649,11 @@ const REMIX_CHAT_CSS = `
     background: none;
     color: ${INK_FAINT};
     cursor: pointer;
-    transition: background 140ms ease, color 140ms ease;
+    transition: background 140ms ease, color 140ms ease,
+      transform 140ms ${EASE_OUT_CSS};
   }
   .remix-chat-icon:hover { background: rgba(245, 241, 228, 0.08); color: ${INK}; }
+  .remix-chat-icon:active { transform: scale(0.94); }
 
   .remix-chat-scroll { flex: 1; min-height: 0; }
   .remix-chat-thread {
@@ -1735,7 +1725,7 @@ const REMIX_CHAT_CSS = `
   .remix-chat-step-chevron {
     flex-shrink: 0;
     opacity: 0.5;
-    transition: transform 140ms ease, opacity 140ms ease;
+    transition: transform 140ms ${EASE_OUT_CSS}, opacity 140ms ease;
   }
   .remix-chat-step-head:hover .remix-chat-step-chevron { opacity: 1; }
   .remix-chat-step-chevron[data-open="true"] { transform: rotate(90deg); opacity: 1; }
@@ -1798,8 +1788,10 @@ const REMIX_CHAT_CSS = `
     text-overflow: ellipsis;
     white-space: nowrap;
     cursor: pointer;
+    transition: background 140ms ease, transform 140ms ${EASE_OUT_CSS};
   }
   .remix-chat-chip:hover { background: rgba(245, 241, 228, 0.15); }
+  .remix-chat-chip:active { transform: scale(0.97); }
   .remix-chat-quick {
     display: flex;
     flex-wrap: wrap;
@@ -1834,6 +1826,7 @@ const REMIX_CHAT_CSS = `
   }
   .remix-chat-input::placeholder { color: ${INK_FAINT}; }
   .remix-chat-send {
+    position: relative;
     width: 28px;
     height: 28px;
     flex-shrink: 0;
@@ -1845,12 +1838,43 @@ const REMIX_CHAT_CSS = `
     background: rgba(245, 241, 228, 0.92);
     color: rgba(24, 22, 18, 0.95);
     cursor: pointer;
-    transition: opacity 140ms ease, transform 140ms ease;
+    transition: opacity 140ms ease, transform 140ms ${EASE_OUT_CSS},
+      background 160ms ease;
   }
-  .remix-chat-send svg rect { fill: currentColor; }
   .remix-chat-send:disabled { opacity: 0.3; cursor: default; }
-  .remix-chat-send:not(:disabled):hover { transform: scale(1.06); }
-  .remix-chat-send:not(:disabled):active { transform: scale(0.95); }
+  /* Press feedback only — a hover scale on the most-clicked control here is
+     decoration at a frequency tier that has no budget for it. */
+  .remix-chat-send:not(:disabled):active { transform: scale(0.94); }
+  .remix-chat-send[data-busy="true"] { background: rgba(245, 241, 228, 0.55); }
+  .remix-chat-send-glyph {
+    position: absolute;
+    inset: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 190ms ${EASE_OUT_CSS}, transform 190ms ${EASE_OUT_CSS},
+      filter 190ms ${EASE_OUT_CSS};
+  }
+  .remix-chat-send-glyph[data-on="false"] {
+    opacity: 0;
+    transform: scale(0.72);
+    filter: blur(2px);
+  }
+  .remix-chat-send-glyph[data-on="true"] {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+
+  /* The card carries its own palette; the UA default ring is a blue halo. */
+  .remix-chat-icon:focus-visible,
+  .remix-chat-chip:focus-visible,
+  .remix-chat-send:focus-visible,
+  .remix-chat-step-head:focus-visible {
+    outline: 1px solid rgba(245, 241, 228, 0.5);
+    outline-offset: 2px;
+    border-radius: 7px;
+  }
 
   .remix-md { line-height: 1.6; word-break: break-word; }
   .remix-md-plain { white-space: pre-wrap; }
@@ -1907,4 +1931,30 @@ const REMIX_CHAT_CSS = `
     text-align: left;
   }
   .remix-md th { background: rgba(245, 241, 228, 0.06); font-weight: 600; }
+
+  /* app.tsx's block only names .pill-*, and this card is a separate <style>.
+     Keep the fades, drop the travel, scale and blur. */
+  @media (prefers-reduced-motion: reduce) {
+    .remix-chat-icon:active,
+    .remix-chat-chip:active,
+    .remix-chat-send:not(:disabled):active { transform: none; }
+    .remix-chat-send-glyph[data-on="false"] {
+      transform: none;
+      filter: none;
+    }
+    .remix-chat-send-glyph { transition-duration: 120ms; }
+    @keyframes remix-mini-content {
+      from { opacity: 0.55; }
+      to { opacity: 1; }
+    }
+    /* The rotation stays — it is the only open/closed affordance. */
+    .remix-chat-step-chevron { transition-duration: 1ms; }
+    .remix-chat-face-strip,
+    .remix-chat[data-minimized="true"] .remix-chat-face-strip,
+    .remix-chat-face-full,
+    .remix-chat[data-minimized="true"] .remix-chat-face-full {
+      transition-duration: 120ms;
+      transition-delay: 0ms;
+    }
+  }
 `;

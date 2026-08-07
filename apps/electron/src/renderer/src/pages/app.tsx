@@ -18,6 +18,7 @@ import {
   applyNeedsAppContextForCleanup,
   refreshNeedsAppContextForCleanup,
 } from "@renderer/lib/cleanup-app-context";
+import { EASE_MORPH_CSS, MORPH_MS } from "@renderer/lib/ease";
 import { Recorder, RecorderSupersededError } from "@renderer/lib/recorder";
 import { Streamer, type StreamerConnectionState } from "@renderer/lib/streamer";
 import {
@@ -3275,15 +3276,17 @@ export default function AppPage(): React.JSX.Element {
           /* The chat surface morphs between the one-line strip and the full
              card, so size and shape join the transition — hover-expand should
              read as the strip growing into the conversation, not as one
-             surface being swapped for another. */
+             surface being swapped for another. Shared constants rather than
+             literals, because the card's faces cross-fade to land exactly as
+             this box stops resizing (see REMIX_CHAT_CSS). */
           .pill-card.pill-chat-morph,
           .pill-card.pill-chat-morph[data-show="true"] {
             transition: opacity 180ms ease,
               transform 380ms cubic-bezier(0.22, 1.12, 0.36, 1),
               filter 220ms ease,
-              width 320ms cubic-bezier(0.3, 0.9, 0.3, 1),
-              height 320ms cubic-bezier(0.3, 0.9, 0.3, 1),
-              border-radius 320ms cubic-bezier(0.3, 0.9, 0.3, 1);
+              width ${MORPH_MS}ms ${EASE_MORPH_CSS},
+              height ${MORPH_MS}ms ${EASE_MORPH_CSS},
+              border-radius ${MORPH_MS}ms ${EASE_MORPH_CSS};
           }
 
           /* The chat card leaves the way it arrived, reversed.
