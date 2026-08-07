@@ -1,4 +1,25 @@
 # Changelog
+## 0.7.1
+
+### New Features ✨
+
+- Change the electron app log in page copy. by @matteo8p in [#552](https://github.com/freestyle-voice/freestyle/pull/552)
+
+### Bug Fixes 🐛
+
+- Resolve hotkey conflicts by @matteo8p in [#553](https://github.com/freestyle-voice/freestyle/pull/553)
+
+### Internal Changes 🔧
+
+#### Server
+
+- Take model-cost lookup off the transcription response path by @MathurAditya724 in [#551](https://github.com/freestyle-voice/freestyle/pull/551)
+- Cache prepared statements, batch settings reads, index hot-path tables by @MathurAditya724 in [#549](https://github.com/freestyle-voice/freestyle/pull/549)
+
+#### Other
+
+- (electron) Bound the plugin WebContentsView cache with an LRU cap by @MathurAditya724 in [#550](https://github.com/freestyle-voice/freestyle/pull/550)
+
 ## 0.7.0
 
 ### New Features ✨
